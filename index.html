@@ -294,35 +294,42 @@
         }
 
         // ============================================================
-        // ▼▼▼ B计划：DeepLink 跳转发送逻辑 ▼▼▼
-        // ============================================================
+        // --- 最终版提交函数：压缩编码 ---
         function submitOrder() {
-            // 1. 您的机器人用户名 (不带 @)
+            // 请填入你的机器人用户名 (不带@)
             const botUsername = "baiwieyuan_bot"; 
 
             try {
-                const remarkText = document.getElementById('order-remark').value;
+                // 1. 检查购物车是否为空
+                const itemIds = Object.keys(cart);
+                if (itemIds.length === 0) {
+                    alert("购物车是空的！");
+                    return;
+                }
+
+                // 2. 生成压缩字符串
+                // 格式：ID_数量-ID_数量
+                // 例如：1_2-3_1
+                let payloadParts = [];
                 
-                // 2. 打包数据
-                const finalOrder = {
-                    cart: cart,
-                    remark: remarkText
-                };
-                const jsonStr = JSON.stringify(finalOrder);
+                itemIds.forEach(id => {
+                    const qty = cart[id].quantity;
+                    if (qty > 0) {
+                        payloadParts.push(`${id}_${qty}`);
+                    }
+                });
 
-                // 3. 加密数据 (Base64编码，处理中文)
-                // 这会把 { "cart":... } 变成一串字母，方便在 URL 里传输
-                const payload = btoa(unescape(encodeURIComponent(jsonStr)));
+                const payload = payloadParts.join("-");
 
-                // 4. 指挥 Telegram 跳转到您的机器人并带上参数
-                // 这相当于自动帮用户输入了 /start xxxxx
+                // 3. 打印一下看看长什么样 (调试用，可删除)
+                // alert("发送代码: " + payload);
+
+                // 4. 跳转发送
                 tg.openTelegramLink(`https://t.me/${botUsername}?start=${payload}`);
-                
-                // 5. 关闭网页
                 tg.close();
 
             } catch (error) {
-                alert("发生错误: " + error.message);
+                alert("错误: " + error.message);
             }
         }
 
@@ -332,4 +339,5 @@
     </script>
 </body>
 </html>
+
 
