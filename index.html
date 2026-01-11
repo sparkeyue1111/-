@@ -72,7 +72,7 @@
             <textarea id="remark-input" class="remark-input" placeholder="请输入备注 (如: 微辣, 不要葱)"></textarea>
             <div class="modal-btns">
                 <button class="modal-btn" onclick="closeModal()" style="background:#eee">取消</button>
-                <button class="modal-btn" onclick="confirmOrder()" style="background:#2481cc; color:white">确认发送</button>
+                <button class="modal-btn" onclick="confirmOrder()" style="background:#2481cc; color:white">确认下单</button>
             </div>
         </div>
     </div>
@@ -83,30 +83,35 @@
         const tg = window.Telegram.WebApp;
         tg.expand();
 
-        let cart = {}; // 购物车数据: { id: quantity }
+        let cart = {}; // 购物车数据
 
         // --- 初始化渲染 ---
         function init() {
+            // 检查 menu.js 是否加载
+            if (typeof categories === 'undefined' || typeof menuItems === 'undefined') {
+                alert("错误：无法加载菜单数据 (menu.js)。请检查文件是否存在。");
+                return;
+            }
+
             const sidebar = document.getElementById('sidebar');
             const productList = document.getElementById('product-list');
 
-            // 渲染分类和菜品
             categories.forEach((cat, index) => {
-                // 1. 左侧 Tab
+                // 左侧 Tab
                 const tab = document.createElement('div');
                 tab.className = `category-tab ${index === 0 ? 'active' : ''}`;
                 tab.innerText = cat.name;
                 tab.onclick = () => scrollToCategory(cat.id, tab);
                 sidebar.appendChild(tab);
 
-                // 2. 右侧标题
+                // 右侧标题
                 const title = document.createElement('div');
                 title.className = 'category-title';
                 title.id = `cat-${cat.id}`;
                 title.innerText = cat.name;
                 productList.appendChild(title);
 
-                // 3. 右侧该分类下的菜品
+                // 右侧该分类下的菜品
                 const items = menuItems.filter(i => i.category === cat.id);
                 items.forEach(item => {
                     const card = document.createElement('div');
@@ -128,20 +133,17 @@
             });
         }
 
-        // --- 滚动联动 (简化版) ---
         function scrollToCategory(catId, tabElement) {
             document.getElementById(`cat-${catId}`).scrollIntoView({ behavior: 'smooth' });
             document.querySelectorAll('.category-tab').forEach(t => t.classList.remove('active'));
             tabElement.classList.add('active');
         }
 
-        // --- 购物车逻辑 ---
         function updateCart(id, change, btnEl) {
             if (!cart[id]) cart[id] = 0;
             cart[id] += change;
             if (cart[id] <= 0) delete cart[id];
 
-            // 更新 UI
             const qtySpan = document.getElementById(`qty-${id}`);
             const minusBtn = qtySpan.previousElementSibling;
             
@@ -155,7 +157,6 @@
                 qtySpan.style.display = 'none';
                 minusBtn.style.display = 'none';
             }
-
             updateTotalBar();
         }
 
@@ -169,7 +170,6 @@
                     count += cart[id];
                 }
             }
-            
             const bar = document.getElementById('cart-bar');
             if (count > 0) {
                 bar.style.display = 'flex';
@@ -179,7 +179,6 @@
             }
         }
 
-        // --- 提交逻辑 ---
         function showRemarkModal() {
             document.getElementById('remark-modal').style.display = 'flex';
         }
@@ -187,33 +186,68 @@
             document.getElementById('remark-modal').style.display = 'none';
         }
 
+        // ==========================================
+        // ▼▼▼ 核心修改：双保险发送逻辑 ▼▼▼
+        // ==========================================
         function confirmOrder() {
-            // 组装完整数据 (不再用压缩码，直接发 JSON)
-            // sendData 支持最多 4096 字节，足够你发几百个菜了
-            const orderData = {
-                cart: [],
-                remark: document.getElementById('remark-input').value,
-                total: document.getElementById('total-display').innerText
-            };
+            // 1. 准备数据
+            let orderItems = [];
+            let totalVal = 0;
+            
+            // 准备纯文本格式 (用于复制粘贴 - B计划)
+            let textReceipt = "🛒 新订单 (New Order)\n";
+            textReceipt += "====================\n";
 
             for (let id in cart) {
                 const item = menuItems.find(i => i.id == id);
                 if (item) {
-                    orderData.cart.push({
+                    const subtotal = item.price * cart[id];
+                    totalVal += subtotal;
+                    
+                    // JSON 数据
+                    orderItems.push({
                         name: item.name,
                         price: item.price,
                         qty: cart[id]
                     });
+                    
+                    // 文本数据
+                    textReceipt += `▪️ ${item.name} x ${cart[id]} ($${subtotal.toFixed(2)})\n`;
                 }
             }
+            
+            const remark = document.getElementById('remark-input').value || "无";
+            const totalStr = `$${totalVal.toFixed(2)}`;
+            
+            // 完善文本小票
+            textReceipt += "====================\n";
+            textReceipt += `💰 总计: ${totalStr}\n`;
+            textReceipt += `📝 备注: ${remark}`;
 
-            // 发送数据
-            tg.sendData(JSON.stringify(orderData));
-            // 这是一个保险措施：防止 sendData 偶发失效
-            // 如果 1秒后窗口没关，说明 sendData 失败，提示用户复制
-            setTimeout(() => {
-                tg.close(); // 尝试强制关闭
-            }, 500);
+            // 2. 尝试 A计划：官方 sendData (隐形发送)
+            const orderJson = {
+                cart: orderItems,
+                remark: remark,
+                total: totalStr
+            };
+            
+            try {
+                tg.sendData(JSON.stringify(orderJson));
+            } catch (e) {
+                console.log("sendData 失败", e);
+            }
+
+            // 3. 执行 B计划：剪贴板大法 (100% 成功率)
+            // 无论上面成不成功，都把文字复制到剪贴板，并提示用户
+            navigator.clipboard.writeText(textReceipt).then(() => {
+                // 成功复制到剪贴板
+                alert("✅ 订单数据已生成！\n\n窗口关闭后，请在聊天框里【长按粘贴】并发送即可。");
+                tg.close();
+            }).catch(() => {
+                // 如果浏览器禁止自动复制，则弹窗显示内容让用户手动复制
+                alert("⚠️ 请手动复制下面的订单内容发给我们：\n\n" + textReceipt);
+                tg.close();
+            });
         }
 
         init();
