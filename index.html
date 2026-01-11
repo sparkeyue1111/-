@@ -3,365 +3,220 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>百味源餐馆</title>
+    <title>百味源菜单</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        /* --- 样式部分 CSS --- */
-        body {
-            /* 使用 Telegram 定义的变量，自动适配深色/浅色模式 */
-            background-color: var(--tg-theme-bg-color, #fff); 
-            color: var(--tg-theme-text-color, #000);
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            margin: 0;
-            padding: 0;
-            -webkit-tap-highlight-color: transparent;
-        }
-
-        .container {
-            padding: 15px;
-            padding-bottom: 50px; 
-        }
-
-        /* 餐馆标题样式 */
-        .restaurant-title {
-            text-align: center;
-            font-size: 24px;
-            font-weight: bold;
-            margin-top: 5px;
-            margin-bottom: 20px;
-            color: var(--tg-theme-text-color, #000);
-        }
-
-        /* 菜品卡片样式 */
-        .item-card {
-            display: flex;
-            align-items: center;
-            background-color: var(--tg-theme-secondary-bg-color, #f5f5f5);
-            border-radius: 12px;
-            margin-bottom: 12px;
-            padding: 10px;
-            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
-        }
-
-        .item-img {
-            width: 70px;
-            height: 70px;
-            border-radius: 8px;
-            background-color: #e0e0e0;
-            object-fit: cover;
-            margin-right: 15px;
-            flex-shrink: 0;
-        }
-
-        .item-info {
-            flex: 1;
-        }
-
-        .item-title {
-            font-weight: bold;
-            font-size: 16px;
-            margin-bottom: 4px;
-        }
-
-        .item-price {
-            color: var(--tg-theme-link-color, #2481cc);
-            font-weight: 600;
-        }
-
-        /* 加减按钮控制区 */
-        .item-controls {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-        }
-
-        .btn {
-            width: 30px;
-            height: 30px;
-            border-radius: 50%;
-            border: none;
-            background-color: var(--tg-theme-button-color, #2481cc);
-            color: var(--tg-theme-button-text-color, #fff);
-            font-size: 18px;
-            display: flex;
-            justify-content: center;
-            align-items: center;
-            cursor: pointer;
-            transition: opacity 0.2s;
-        }
-
-        .btn:active {
-            opacity: 0.7;
-        }
-
-        .btn-remove {
-            background-color: #e53935; 
-            display: none; 
-        }
-
-        .count {
-            font-weight: bold;
-            font-size: 16px;
-            min-width: 20px;
-            text-align: center;
-            display: none; 
-        }
-
-        /* 备注输入框样式 */
-        .remark-section {
-            margin-top: 20px;
-            padding: 10px;
-            background-color: var(--tg-theme-secondary-bg-color, #f5f5f5);
-            border-radius: 12px;
-        }
-
-        .remark-label {
-            font-size: 14px;
-            color: var(--tg-theme-hint-color, #888);
-            margin-bottom: 8px;
-            display: block;
-        }
-
-        .remark-input {
-            width: 100%;
-            height: 60px;
-            border: 1px solid #ddd;
-            border-radius: 8px;
-            padding: 8px;
-            font-family: inherit;
-            font-size: 14px;
-            box-sizing: border-box;
-            background-color: var(--tg-theme-bg-color, #fff);
-            color: var(--tg-theme-text-color, #000);
-            resize: none;
-        }
-        .remark-input:focus {
-            outline: 2px solid var(--tg-theme-link-color, #2481cc);
-            border-color: transparent;
-        }
-
-        /* 底部蓝色结算按钮样式 */
-        .checkout-container {
-            margin-top: 25px;
-            padding: 0 5px;
-        }
+        body { margin: 0; padding: 0; font-family: sans-serif; height: 100vh; display: flex; flex-direction: column; background: #fff; }
         
-        #checkout-btn {
-            width: 100%; 
-            height: 50px; 
-            background-color: #2481cc; /* 蓝色 */
-            color: white; 
-            border: none; 
-            border-radius: 12px; 
-            font-size: 18px; 
-            font-weight: bold; 
-            cursor: pointer;
-            display: none; /* 默认隐藏 */
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-            transition: background-color 0.2s;
-        }
+        /* 顶部标题 */
+        .header { text-align: center; padding: 10px; font-weight: bold; border-bottom: 1px solid #eee; background: #fff; z-index: 10; }
         
-        #checkout-btn:active {
-            background-color: #1a6cb0; 
-            transform: translateY(2px);
-        }
+        /* 主体内容：左侧分类 + 右侧列表 */
+        .main-content { flex: 1; display: flex; overflow: hidden; }
+        
+        /* 左侧分类栏 */
+        .sidebar { width: 80px; background: #f5f5f5; overflow-y: auto; }
+        .category-tab { padding: 15px 5px; text-align: center; font-size: 13px; color: #666; cursor: pointer; border-bottom: 1px solid #eee; }
+        .category-tab.active { background: #fff; color: #2481cc; font-weight: bold; border-left: 3px solid #2481cc; }
+        
+        /* 右侧菜品区 */
+        .product-list { flex: 1; overflow-y: auto; padding: 10px; padding-bottom: 80px; }
+        .category-title { font-weight: bold; margin: 15px 0 5px 0; font-size: 14px; color: #333; }
+        
+        .item-card { display: flex; margin-bottom: 15px; }
+        .item-img { width: 60px; height: 60px; background: #eee; border-radius: 6px; object-fit: cover; margin-right: 10px; }
+        .item-details { flex: 1; }
+        .item-name { font-weight: bold; font-size: 15px; margin-bottom: 5px; }
+        .item-price { color: #f44336; font-weight: bold; }
+        
+        /* 加减控件 */
+        .controls { margin-top: 5px; display: flex; align-items: center; justify-content: flex-end; }
+        .btn-circle { width: 24px; height: 24px; border-radius: 50%; border: none; font-size: 16px; display: flex; align-items: center; justify-content: center; cursor: pointer; }
+        .btn-add { background: #2481cc; color: #fff; }
+        .btn-minus { background: #fff; border: 1px solid #ccc; color: #333; }
+        .qty { margin: 0 10px; font-size: 14px; min-width: 15px; text-align: center; }
 
+        /* 底部购物车条 */
+        .cart-bar { position: fixed; bottom: 0; left: 0; right: 0; height: 60px; background: #fff; border-top: 1px solid #eee; display: flex; align-items: center; padding: 0 15px; z-index: 20; box-shadow: 0 -2px 10px rgba(0,0,0,0.05); }
+        .cart-info { flex: 1; }
+        .total-price { font-size: 18px; font-weight: bold; color: #333; }
+        .checkout-btn { background: #2481cc; color: #fff; border: none; padding: 10px 25px; border-radius: 20px; font-weight: bold; font-size: 16px; }
+        
+        /* 备注弹窗 */
+        .modal { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.5); display: none; align-items: center; justify-content: center; z-index: 50; }
+        .modal-content { background: #fff; width: 80%; padding: 20px; border-radius: 12px; }
+        .remark-input { width: 100%; height: 60px; margin: 10px 0; padding: 5px; border: 1px solid #ddd; border-radius: 4px; }
+        .modal-btns { display: flex; justify-content: flex-end; gap: 10px; }
+        .modal-btn { padding: 8px 15px; border-radius: 6px; border: none; font-weight: bold; }
     </style>
 </head>
 <body>
 
-    <div class="container">
-        
-        <h1 class="restaurant-title">百味源餐馆</h1>
+    <div class="header">百味源菜单</div>
 
-        <div id="menu-container">
-            </div>
+    <div class="main-content">
+        <div class="sidebar" id="sidebar"></div>
+        <div class="product-list" id="product-list"></div>
+    </div>
 
-        <div class="remark-section">
-            <label class="remark-label">备注 / 特殊要求</label>
-            <textarea id="order-remark" class="remark-input" placeholder="例如：微辣、不要香菜、到了打电话..."></textarea>
+    <div class="cart-bar" id="cart-bar" style="display:none">
+        <div class="cart-info">
+            <div class="total-price" id="total-display">$0.00</div>
         </div>
+        <button class="checkout-btn" onclick="showRemarkModal()">去结算</button>
+    </div>
 
-        <div class="checkout-container">
-            <button id="checkout-btn" onclick="submitOrder()">
-                去结算
-            </button>
+    <div class="modal" id="remark-modal">
+        <div class="modal-content">
+            <h3>确认订单</h3>
+            <textarea id="remark-input" class="remark-input" placeholder="请输入备注 (如: 微辣, 不要葱)"></textarea>
+            <div class="modal-btns">
+                <button class="modal-btn" onclick="closeModal()" style="background:#eee">取消</button>
+                <button class="modal-btn" onclick="confirmOrder()" style="background:#2481cc; color:white">确认发送</button>
+            </div>
         </div>
     </div>
 
+    <script src="menu.js"></script>
+
     <script>
-        // --- 逻辑部分 JavaScript ---
-
         const tg = window.Telegram.WebApp;
-        tg.expand(); 
+        tg.expand();
 
-        // ============================================================
-        // 菜单配置
-        // ============================================================
-        const menuData = [
-            { 
-                id: 1, 
-                name: "招牌红烧牛肉面", 
-                price: 12.99, 
-                image: "https://images.unsplash.com/photo-1555126634-323283e090fa?w=200&h=200&fit=crop" 
-            },
-            { 
-                id: 2, 
-                name: "扬州炒饭", 
-                price: 9.50, 
-                image: "https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=200&h=200&fit=crop"
-            },
-            { 
-                id: 3, 
-                name: "经典可乐", 
-                price: 2.00, 
-                image: "" 
-            },
-            { 
-                id: 4, 
-                name: "手工水饺 (12个)", 
-                price: 14.00, 
-                image: "" 
-            },
-             { 
-                id: 5, 
-                name: "拍黄瓜", 
-                price: 6.50, 
-                image: "" 
-            }
-        ];
+        let cart = {}; // 购物车数据: { id: quantity }
 
-        let cart = {}; 
+        // --- 初始化渲染 ---
+        function init() {
+            const sidebar = document.getElementById('sidebar');
+            const productList = document.getElementById('product-list');
 
-        function renderMenu() {
-            const container = document.getElementById('menu-container');
-            container.innerHTML = ''; 
+            // 渲染分类和菜品
+            categories.forEach((cat, index) => {
+                // 1. 左侧 Tab
+                const tab = document.createElement('div');
+                tab.className = `category-tab ${index === 0 ? 'active' : ''}`;
+                tab.innerText = cat.name;
+                tab.onclick = () => scrollToCategory(cat.id, tab);
+                sidebar.appendChild(tab);
 
-            menuData.forEach(item => {
-                const card = document.createElement('div');
-                card.className = 'item-card';
-                
-                const count = cart[item.id] ? cart[item.id].quantity : 0;
-                const showControls = count > 0 ? 'inline-block' : 'none';
-                
-                // 如果 image 字段为空，使用透明像素占位
-                const imgSrc = item.image ? item.image : 'data:image/gif;base64,R0lGODlhAQABAIAAAMDAwAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw=='; 
-                
-                card.innerHTML = `
-                    <img class="item-img" src="${imgSrc}" alt="${item.name}" onerror="this.style.backgroundColor='#ccc'">
-                    <div class="item-info">
-                        <div class="item-title">${item.name}</div>
-                        <div class="item-price">$${item.price.toFixed(2)}</div>
-                    </div>
-                    <div class="item-controls">
-                        <button class="btn btn-remove" style="display: ${showControls}" onclick="updateCart(${item.id}, -1)">-</button>
-                        <span class="count" style="display: ${showControls}">${count}</span>
-                        <button class="btn" onclick="updateCart(${item.id}, 1)">+</button>
-                    </div>
-                `;
-                container.appendChild(card);
+                // 2. 右侧标题
+                const title = document.createElement('div');
+                title.className = 'category-title';
+                title.id = `cat-${cat.id}`;
+                title.innerText = cat.name;
+                productList.appendChild(title);
+
+                // 3. 右侧该分类下的菜品
+                const items = menuItems.filter(i => i.category === cat.id);
+                items.forEach(item => {
+                    const card = document.createElement('div');
+                    card.className = 'item-card';
+                    card.innerHTML = `
+                        <img class="item-img" src="${item.img || 'https://via.placeholder.com/60'}" onerror="this.style.backgroundColor='#eee'">
+                        <div class="item-details">
+                            <div class="item-name">${item.name}</div>
+                            <div class="item-price">$${item.price.toFixed(2)}</div>
+                            <div class="controls">
+                                <button class="btn-circle btn-minus" onclick="updateCart(${item.id}, -1, this)">-</button>
+                                <span class="qty" id="qty-${item.id}" style="display:none">0</span>
+                                <button class="btn-circle btn-add" onclick="updateCart(${item.id}, 1, this)">+</button>
+                            </div>
+                        </div>
+                    `;
+                    productList.appendChild(card);
+                });
             });
         }
 
-        function updateCart(itemId, change) {
-            if (!cart[itemId]) {
-                cart[itemId] = { ...menuData.find(i => i.id === itemId), quantity: 0 };
-            }
-            cart[itemId].quantity += change;
-            if (cart[itemId].quantity <= 0) {
-                delete cart[itemId];
-            }
-            renderMenu();
-            updateCustomButton(); 
+        // --- 滚动联动 (简化版) ---
+        function scrollToCategory(catId, tabElement) {
+            document.getElementById(`cat-${catId}`).scrollIntoView({ behavior: 'smooth' });
+            document.querySelectorAll('.category-tab').forEach(t => t.classList.remove('active'));
+            tabElement.classList.add('active');
         }
 
-        function updateCustomButton() {
-            const btn = document.getElementById('checkout-btn');
-            let totalQty = 0;
-            let totalPrice = 0;
+        // --- 购物车逻辑 ---
+        function updateCart(id, change, btnEl) {
+            if (!cart[id]) cart[id] = 0;
+            cart[id] += change;
+            if (cart[id] <= 0) delete cart[id];
+
+            // 更新 UI
+            const qtySpan = document.getElementById(`qty-${id}`);
+            const minusBtn = qtySpan.previousElementSibling;
+            
+            const currentQty = cart[id] || 0;
+            qtySpan.innerText = currentQty;
+            
+            if (currentQty > 0) {
+                qtySpan.style.display = 'block';
+                minusBtn.style.display = 'flex';
+            } else {
+                qtySpan.style.display = 'none';
+                minusBtn.style.display = 'none';
+            }
+
+            updateTotalBar();
+        }
+
+        function updateTotalBar() {
+            let total = 0;
+            let count = 0;
+            for (let id in cart) {
+                const item = menuItems.find(i => i.id == id);
+                if (item) {
+                    total += item.price * cart[id];
+                    count += cart[id];
+                }
+            }
+            
+            const bar = document.getElementById('cart-bar');
+            if (count > 0) {
+                bar.style.display = 'flex';
+                document.getElementById('total-display').innerText = `$${total.toFixed(2)}`;
+            } else {
+                bar.style.display = 'none';
+            }
+        }
+
+        // --- 提交逻辑 ---
+        function showRemarkModal() {
+            document.getElementById('remark-modal').style.display = 'flex';
+        }
+        function closeModal() {
+            document.getElementById('remark-modal').style.display = 'none';
+        }
+
+        function confirmOrder() {
+            // 组装完整数据 (不再用压缩码，直接发 JSON)
+            // sendData 支持最多 4096 字节，足够你发几百个菜了
+            const orderData = {
+                cart: [],
+                remark: document.getElementById('remark-input').value,
+                total: document.getElementById('total-display').innerText
+            };
 
             for (let id in cart) {
-                totalQty += cart[id].quantity;
-                totalPrice += cart[id].quantity * cart[id].price;
+                const item = menuItems.find(i => i.id == id);
+                if (item) {
+                    orderData.cart.push({
+                        name: item.name,
+                        price: item.price,
+                        qty: cart[id]
+                    });
+                }
             }
 
-            if (totalQty > 0) {
-                btn.style.display = 'block'; 
-                btn.innerText = `去结算 ($${totalPrice.toFixed(2)})`;
-            } else {
-                btn.style.display = 'none'; 
-            }
+            // 发送数据
+            tg.sendData(JSON.stringify(orderData));
+            // 这是一个保险措施：防止 sendData 偶发失效
+            // 如果 1秒后窗口没关，说明 sendData 失败，提示用户复制
+            setTimeout(() => {
+                tg.close(); // 尝试强制关闭
+            }, 500);
         }
 
-        // ============================================================
-        // --- 最终修复版：压缩传输 + 备注加密 ---
-        function submitOrder() {
-            // 你的机器人 ID
-            const botUsername = "baiwieyuan_bot"; 
-
-            try {
-                // 1. 检查购物车
-                const itemIds = Object.keys(cart);
-                if (itemIds.length === 0) {
-                    alert("购物车是空的！");
-                    return;
-                }
-
-                // 2. 生成【菜品代码】 (例如: 1_2-3_1)
-                let cartParts = [];
-                itemIds.forEach(id => {
-                    const qty = cart[id].quantity;
-                    if (qty > 0) {
-                        cartParts.push(`${id}_${qty}`);
-                    }
-                });
-                const cartCode = cartParts.join("-");
-
-                // 3. 生成【备注代码】 (使用 URL 安全的 Base64 编码)
-                const remarkText = document.getElementById('order-remark').value || "";
-                let remarkCode = "";
-                
-                if (remarkText) {
-                    // 这是一个把中文转成 Telegram 允许字符的黑科技
-                    // 1. 编码 URI
-                    const uriEncoded = encodeURIComponent(remarkText);
-                    // 2. 转 Base64
-                    const base64 = btoa(unescape(uriEncoded));
-                    // 3. 替换掉 Telegram 不喜欢的符号 (+, /, =)
-                    remarkCode = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-                }
-
-                // 4. 拼合最终暗号
-                // 格式：菜品代码~备注代码
-                // 例如：1_2-3_1~5LiN6KaB6aaZ6I+c
-                let finalPayload = cartCode;
-                if (remarkCode) {
-                    finalPayload += "~" + remarkCode;
-                }
-
-                // 5. 检查长度 (Telegram 限制 64 字符)
-                // 如果备注太长，会被截断，但至少订单能发出去
-                if (finalPayload.length > 64) {
-                    alert("备注太长了，请精简一下，或者下单后直接发消息告诉我们。");
-                    // 强制截断以保证跳转成功
-                    finalPayload = finalPayload.substring(0, 64);
-                }
-
-                // 6. 跳转发送 (100% 成功)
-                tg.openTelegramLink(`https://t.me/${botUsername}?start=${finalPayload}`);
-                tg.close();
-
-            } catch (error) {
-                alert("错误: " + error.message);
-            }
-        }
-        // 初始化
-        renderMenu();
-
+        init();
     </script>
 </body>
 </html>
-
-
-
-
