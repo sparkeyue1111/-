@@ -294,38 +294,49 @@
         }
 
         // ============================================================
-        // --- 最终版提交函数：压缩编码 ---
+        // --- 最终完美版：账单预填模式 ---
         function submitOrder() {
-            // 请填入你的机器人用户名 (不带@)
+            // 你的机器人 ID
             const botUsername = "baiwieyuan_bot"; 
 
             try {
-                // 1. 检查购物车是否为空
+                // 1. 检查购物车
                 const itemIds = Object.keys(cart);
                 if (itemIds.length === 0) {
                     alert("购物车是空的！");
                     return;
                 }
 
-                // 2. 生成压缩字符串
-                // 格式：ID_数量-ID_数量
-                // 例如：1_2-3_1
-                let payloadParts = [];
+                // 2. 组装中文账单 (这是发给机器人看的，也是给客户自己看的)
+                let text = "🛒 新订单 (New Order)\n";
+                text += "====================\n";
                 
+                let total = 0;
                 itemIds.forEach(id => {
-                    const qty = cart[id].quantity;
-                    if (qty > 0) {
-                        payloadParts.push(`${id}_${qty}`);
-                    }
+                    const item = cart[id];
+                    const subtotal = item.price * item.quantity;
+                    total += subtotal;
+                    // 格式：牛肉面 x 2 ($25.98)
+                    text += `▪️ ${item.name} x ${item.quantity} ($${subtotal.toFixed(2)})\n`;
                 });
+                
+                text += "====================\n";
+                text += `💰 总价: $${total.toFixed(2)}\n`;
+                
+                // 3. 加入备注 (如果有)
+                const remarkText = document.getElementById('order-remark').value;
+                if (remarkText) {
+                    text += `📝 备注: ${remarkText}`;
+                } else {
+                    text += `📝 备注: 无`;
+                }
 
-                const payload = payloadParts.join("-");
+                // 4. 生成跳转链接
+                // https://t.me/bot名字?text=编码后的中文内容
+                const url = `https://t.me/${botUsername}?text=${encodeURIComponent(text)}`;
 
-                // 3. 打印一下看看长什么样 (调试用，可删除)
-                // alert("发送代码: " + payload);
-
-                // 4. 跳转发送
-                tg.openTelegramLink(`https://t.me/${botUsername}?start=${payload}`);
+                // 5. 跳转 + 关闭网页
+                tg.openTelegramLink(url);
                 tg.close();
 
             } catch (error) {
@@ -339,5 +350,6 @@
     </script>
 </body>
 </html>
+
 
 
