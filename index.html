@@ -119,4 +119,214 @@
         .remark-section {
             margin-top: 20px;
             padding: 10px;
-            background-color: var(--tg-theme-secondary-bg-color
+            background-color: var(--tg-theme-secondary-bg-color, #f5f5f5);
+            border-radius: 12px;
+        }
+
+        .remark-label {
+            font-size: 14px;
+            color: var(--tg-theme-hint-color, #888);
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .remark-input {
+            width: 100%;
+            height: 60px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 8px;
+            font-family: inherit;
+            font-size: 14px;
+            box-sizing: border-box;
+            background-color: var(--tg-theme-bg-color, #fff);
+            color: var(--tg-theme-text-color, #000);
+            resize: none;
+        }
+        .remark-input:focus {
+            outline: 2px solid var(--tg-theme-link-color, #2481cc);
+            border-color: transparent;
+        }
+
+        /* --- 新增：自定义蓝色结算按钮样式 --- */
+        .checkout-container {
+            margin-top: 25px;
+            padding: 0 5px;
+        }
+        
+        #checkout-btn {
+            width: 100%; 
+            height: 50px; 
+            background-color: #2481cc; /* 蓝色 */
+            color: white; 
+            border: none; 
+            border-radius: 12px; 
+            font-size: 18px; 
+            font-weight: bold; 
+            cursor: pointer;
+            display: none; /* 默认隐藏，有商品才显示 */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: background-color 0.2s;
+        }
+        
+        #checkout-btn:active {
+            background-color: #1a6cb0; /* 点击变深色 */
+            transform: translateY(2px);
+        }
+
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <div class="version-tag">Current Version: v2.0 (Blue Button)</div>
+        
+        <h1 class="restaurant-title">百味源餐馆</h1>
+
+        <div id="menu-container">
+            </div>
+
+        <div class="remark-section">
+            <label class="remark-label">备注 / 特殊要求</label>
+            <textarea id="order-remark" class="remark-input" placeholder="例如：微辣、不要香菜、到了打电话..."></textarea>
+        </div>
+
+        <div class="checkout-container">
+            <button id="checkout-btn" onclick="submitOrder()">
+                去结算
+            </button>
+        </div>
+    </div>
+
+    <script>
+        // --- 逻辑部分 JavaScript ---
+
+        const tg = window.Telegram.WebApp;
+        tg.expand(); 
+
+        // ============================================================
+        // 菜单配置
+        // ============================================================
+        const menuData = [
+            { 
+                id: 1, 
+                name: "招牌红烧牛肉面", 
+                price: 12.99, 
+                image: "https://images.unsplash.com/photo-1555126634-323283e090fa?w=200&h=200&fit=crop" 
+            },
+            { 
+                id: 2, 
+                name: "扬州炒饭", 
+                price: 9.50, 
+                image: "https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=200&h=200&fit=crop"
+            },
+            { 
+                id: 3, 
+                name: "经典可乐", 
+                price: 2.00, 
+                image: "" 
+            },
+            { 
+                id: 4, 
+                name: "手工水饺 (12个)", 
+                price: 14.00, 
+                image: "" 
+            },
+             { 
+                id: 5, 
+                name: "拍黄瓜", 
+                price: 6.50, 
+                image: "" 
+            }
+        ];
+
+        let cart = {}; 
+
+        function renderMenu() {
+            const container = document.getElementById('menu-container');
+            container.innerHTML = ''; 
+
+            menuData.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'item-card';
+                
+                const count = cart[item.id] ? cart[item.id].quantity : 0;
+                const showControls = count > 0 ? 'inline-block' : 'none';
+                
+                // 如果 image 字段为空，使用透明像素占位
+                const imgSrc = item.image ? item.image : 'data:image/gif;base64,R0lGODlhAQABAIAAAMDAwAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw=='; 
+                
+                card.innerHTML = `
+                    <img class="item-img" src="${imgSrc}" alt="${item.name}" onerror="this.style.backgroundColor='#ccc'">
+                    <div class="item-info">
+                        <div class="item-title">${item.name}</div>
+                        <div class="item-price">$${item.price.toFixed(2)}</div>
+                    </div>
+                    <div class="item-controls">
+                        <button class="btn btn-remove" style="display: ${showControls}" onclick="updateCart(${item.id}, -1)">-</button>
+                        <span class="count" style="display: ${showControls}">${count}</span>
+                        <button class="btn" onclick="updateCart(${item.id}, 1)">+</button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function updateCart(itemId, change) {
+            if (!cart[itemId]) {
+                cart[itemId] = { ...menuData.find(i => i.id === itemId), quantity: 0 };
+            }
+            cart[itemId].quantity += change;
+            if (cart[itemId].quantity <= 0) {
+                delete cart[itemId];
+            }
+            renderMenu();
+            updateCustomButton(); // 更新自定义蓝色按钮
+        }
+
+        // --- 控制自定义蓝色按钮的显示和文字 ---
+        function updateCustomButton() {
+            const btn = document.getElementById('checkout-btn');
+            let totalQty = 0;
+            let totalPrice = 0;
+
+            for (let id in cart) {
+                totalQty += cart[id].quantity;
+                totalPrice += cart[id].quantity * cart[id].price;
+            }
+
+            if (totalQty > 0) {
+                // 显示按钮并更新金额
+                btn.style.display = 'block'; 
+                btn.innerText = `去结算 ($${totalPrice.toFixed(2)})`;
+            } else {
+                btn.style.display = 'none'; // 购物车空时隐藏按钮
+            }
+        }
+
+        // --- 点击结算按钮触发的函数 ---
+        function submitOrder() {
+            // 调试用：如果不确定有没有点到，可以把下面这行注释取消
+            // alert("正在提交...");
+
+            try {
+                const remarkText = document.getElementById('order-remark').value;
+                const finalOrder = {
+                    cart: cart,
+                    remark: remarkText
+                };
+                
+                // 发送数据给 Bot
+                tg.sendData(JSON.stringify(finalOrder)); 
+                
+            } catch (error) {
+                alert("错误: " + error.message);
+            }
+        }
+
+        // 初始化渲染
+        renderMenu();
+
+    </script>
+</body>
+</html>
