@@ -1,0 +1,276 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>百味源餐馆</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <style>
+        /* --- 样式部分 CSS --- */
+        body {
+            /* 使用 Telegram 定义的变量，自动适配深色/浅色模式 */
+            background-color: var(--tg-theme-bg-color, #fff); 
+            color: var(--tg-theme-text-color, #000);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .container {
+            padding: 15px;
+            padding-bottom: 80px; /* 防止底部内容被按钮遮挡 */
+        }
+
+        /* --- 新增：餐馆标题样式 --- */
+        .restaurant-title {
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            margin-top: 5px;
+            margin-bottom: 20px;
+            color: var(--tg-theme-text-color, #000);
+        }
+
+        /* 菜品卡片样式 */
+        .item-card {
+            display: flex;
+            align-items: center;
+            background-color: var(--tg-theme-secondary-bg-color, #f5f5f5);
+            border-radius: 12px;
+            margin-bottom: 12px;
+            padding: 10px;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .item-img {
+            width: 70px;
+            height: 70px;
+            border-radius: 8px;
+            background-color: #e0e0e0;
+            object-fit: cover;
+            margin-right: 15px;
+            flex-shrink: 0;
+        }
+
+        .item-info {
+            flex: 1;
+        }
+
+        .item-title {
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+
+        .item-price {
+            color: var(--tg-theme-link-color, #2481cc);
+            font-weight: 600;
+        }
+
+        /* 加减按钮控制区 */
+        .item-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: none;
+            background-color: var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-button-text-color, #fff);
+            font-size: 18px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .btn:active {
+            opacity: 0.7;
+        }
+
+        .btn-remove {
+            background-color: #e53935; 
+            display: none; 
+        }
+
+        .count {
+            font-weight: bold;
+            font-size: 16px;
+            min-width: 20px;
+            text-align: center;
+            display: none; 
+        }
+
+        /* 备注输入框样式 */
+        .remark-section {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: var(--tg-theme-secondary-bg-color, #f5f5f5);
+            border-radius: 12px;
+        }
+
+        .remark-label {
+            font-size: 14px;
+            color: var(--tg-theme-hint-color, #888);
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .remark-input {
+            width: 100%;
+            height: 60px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 8px;
+            font-family: inherit;
+            font-size: 14px;
+            box-sizing: border-box;
+            background-color: var(--tg-theme-bg-color, #fff);
+            color: var(--tg-theme-text-color, #000);
+            resize: none;
+        }
+        .remark-input:focus {
+            outline: 2px solid var(--tg-theme-link-color, #2481cc);
+            border-color: transparent;
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1 class="restaurant-title">百味源餐馆</h1>
+
+        <div id="menu-container">
+            </div>
+
+        <div class="remark-section">
+            <label class="remark-label">备注 / 特殊要求</label>
+            <textarea id="order-remark" class="remark-input" placeholder="例如：微辣、不要香菜、到了打电话..."></textarea>
+        </div>
+    </div>
+
+    <script>
+        // --- 逻辑部分 JavaScript ---
+
+        const tg = window.Telegram.WebApp;
+        tg.expand(); 
+
+        // ============================================================
+        // ▼▼▼ 在这里配置你的菜单 ▼▼▼
+        // ============================================================
+        const menuData = [
+            { 
+                id: 1, 
+                name: "招牌红烧牛肉面", 
+                price: 12.99, 
+                image: "https://images.unsplash.com/photo-1555126634-323283e090fa?w=200&h=200&fit=crop" 
+            },
+            { 
+                id: 2, 
+                name: "扬州炒饭", 
+                price: 9.50, 
+                image: "https://images.unsplash.com/photo-1603133872878-684f208fb84b?w=200&h=200&fit=crop"
+            },
+            { 
+                id: 3, 
+                name: "经典可乐", 
+                price: 2.00, 
+                image: "" 
+            },
+            { 
+                id: 4, 
+                name: "手工水饺 (12个)", 
+                price: 14.00, 
+                image: "" 
+            },
+             { 
+                id: 5, 
+                name: "拍黄瓜", 
+                price: 6.50, 
+                image: "" 
+            }
+        ];
+        // ============================================================
+
+        let cart = {}; 
+
+        function renderMenu() {
+            const container = document.getElementById('menu-container');
+            container.innerHTML = ''; 
+
+            menuData.forEach(item => {
+                const card = document.createElement('div');
+                card.className = 'item-card';
+                
+                const count = cart[item.id] ? cart[item.id].quantity : 0;
+                const showControls = count > 0 ? 'inline-block' : 'none';
+                
+                // 如果 image 字段为空，使用透明像素占位
+                const imgSrc = item.image ? item.image : 'data:image/gif;base64,R0lGODlhAQABAIAAAMDAwAAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw=='; 
+                
+                card.innerHTML = `
+                    <img class="item-img" src="${imgSrc}" alt="${item.name}" onerror="this.style.backgroundColor='#ccc'">
+                    <div class="item-info">
+                        <div class="item-title">${item.name}</div>
+                        <div class="item-price">$${item.price.toFixed(2)}</div>
+                    </div>
+                    <div class="item-controls">
+                        <button class="btn btn-remove" style="display: ${showControls}" onclick="updateCart(${item.id}, -1)">-</button>
+                        <span class="count" style="display: ${showControls}">${count}</span>
+                        <button class="btn" onclick="updateCart(${item.id}, 1)">+</button>
+                    </div>
+                `;
+                container.appendChild(card);
+            });
+        }
+
+        function updateCart(itemId, change) {
+            if (!cart[itemId]) {
+                cart[itemId] = { ...menuData.find(i => i.id === itemId), quantity: 0 };
+            }
+            cart[itemId].quantity += change;
+            if (cart[itemId].quantity <= 0) {
+                delete cart[itemId];
+            }
+            renderMenu();
+            updateMainButton();
+        }
+
+        function updateMainButton() {
+            let totalQty = 0;
+            let totalPrice = 0;
+
+            for (let id in cart) {
+                totalQty += cart[id].quantity;
+                totalPrice += cart[id].quantity * cart[id].price;
+            }
+
+            if (totalQty > 0) {
+                // 底部按钮显示：去结算 ($金额)
+                tg.MainButton.text = `去结算 ($${totalPrice.toFixed(2)})`;
+                tg.MainButton.show(); 
+            } else {
+                tg.MainButton.hide();
+            }
+        }
+
+        Telegram.WebApp.onEvent('mainButtonClicked', function(){
+            const remarkText = document.getElementById('order-remark').value;
+            const finalOrder = {
+                cart: cart,
+                remark: remarkText
+            };
+            tg.sendData(JSON.stringify(finalOrder)); 
+        });
+
+        renderMenu();
+
+    </script>
+</body>
+</html>
