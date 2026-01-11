@@ -6,173 +6,162 @@
     <title>百味源餐馆</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <style>
-        body { background-color: #fff; color: #000; font-family: sans-serif; margin: 0; padding: 0; }
-        .container { padding: 15px; padding-bottom: 50px; }
-        
-        /* --- 调试日志区 (红色框) --- */
-        #debug-console {
-            background-color: #ffebee;
-            color: #d32f2f;
-            border: 2px solid #f44336;
+        /* --- 样式部分 CSS --- */
+        body {
+            /* 使用 Telegram 定义的变量，自动适配深色/浅色模式 */
+            background-color: var(--tg-theme-bg-color, #fff); 
+            color: var(--tg-theme-text-color, #000);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            margin: 0;
+            padding: 0;
+            -webkit-tap-highlight-color: transparent;
+        }
+
+        .container {
+            padding: 15px;
+            padding-bottom: 50px; 
+        }
+
+        /* 餐馆标题样式 */
+        .restaurant-title {
+            text-align: center;
+            font-size: 24px;
+            font-weight: bold;
+            margin-top: 5px;
+            margin-bottom: 20px;
+            color: var(--tg-theme-text-color, #000);
+        }
+
+        /* 菜品卡片样式 */
+        .item-card {
+            display: flex;
+            align-items: center;
+            background-color: var(--tg-theme-secondary-bg-color, #f5f5f5);
+            border-radius: 12px;
+            margin-bottom: 12px;
             padding: 10px;
-            margin: 10px;
-            font-size: 12px;
-            font-family: monospace;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+        }
+
+        .item-img {
+            width: 70px;
+            height: 70px;
             border-radius: 8px;
-            min-height: 50px;
-            word-wrap: break-word;
+            background-color: #e0e0e0;
+            object-fit: cover;
+            margin-right: 15px;
+            flex-shrink: 0;
         }
 
-        .item-card { display: flex; align-items: center; background-color: #f5f5f5; border-radius: 12px; margin-bottom: 12px; padding: 10px; }
-        .item-img { width: 70px; height: 70px; border-radius: 8px; background-color: #ccc; object-fit: cover; margin-right: 15px; flex-shrink: 0;}
-        .item-info { flex: 1; }
-        .item-title { font-weight: bold; font-size: 16px; margin-bottom: 4px; }
-        .item-price { color: #2481cc; font-weight: 600; }
-        .item-controls { display: flex; align-items: center; gap: 10px; }
+        .item-info {
+            flex: 1;
+        }
+
+        .item-title {
+            font-weight: bold;
+            font-size: 16px;
+            margin-bottom: 4px;
+        }
+
+        .item-price {
+            color: var(--tg-theme-link-color, #2481cc);
+            font-weight: 600;
+        }
+
+        /* 加减按钮控制区 */
+        .item-controls {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .btn {
+            width: 30px;
+            height: 30px;
+            border-radius: 50%;
+            border: none;
+            background-color: var(--tg-theme-button-color, #2481cc);
+            color: var(--tg-theme-button-text-color, #fff);
+            font-size: 18px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: opacity 0.2s;
+        }
+
+        .btn:active {
+            opacity: 0.7;
+        }
+
+        .btn-remove {
+            background-color: #e53935; 
+            display: none; 
+        }
+
+        .count {
+            font-weight: bold;
+            font-size: 16px;
+            min-width: 20px;
+            text-align: center;
+            display: none; 
+        }
+
+        /* 备注输入框样式 */
+        .remark-section {
+            margin-top: 20px;
+            padding: 10px;
+            background-color: var(--tg-theme-secondary-bg-color, #f5f5f5);
+            border-radius: 12px;
+        }
+
+        .remark-label {
+            font-size: 14px;
+            color: var(--tg-theme-hint-color, #888);
+            margin-bottom: 8px;
+            display: block;
+        }
+
+        .remark-input {
+            width: 100%;
+            height: 60px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            padding: 8px;
+            font-family: inherit;
+            font-size: 14px;
+            box-sizing: border-box;
+            background-color: var(--tg-theme-bg-color, #fff);
+            color: var(--tg-theme-text-color, #000);
+            resize: none;
+        }
+        .remark-input:focus {
+            outline: 2px solid var(--tg-theme-link-color, #2481cc);
+            border-color: transparent;
+        }
+
+        /* 底部蓝色结算按钮样式 */
+        .checkout-container {
+            margin-top: 25px;
+            padding: 0 5px;
+        }
         
-        .btn { width: 30px; height: 30px; border-radius: 50%; border: none; background-color: #2481cc; color: #fff; font-size: 18px; display: flex; justify-content: center; align-items: center; }
-        .btn-remove { background-color: #e53935; display: none; }
-        .count { font-weight: bold; font-size: 16px; min-width: 20px; text-align: center; display: none; }
-
-        .remark-section { margin-top: 20px; padding: 10px; background-color: #f5f5f5; border-radius: 12px; }
-        .remark-input { width: 100%; height: 60px; border: 1px solid #ddd; border-radius: 8px; padding: 8px; font-size: 14px; box-sizing: border-box; }
-
-        .checkout-container { margin-top: 25px; padding: 0 5px; }
-        #checkout-btn { width: 100%; height: 50px; background-color: #2481cc; color: white; border: none; border-radius: 12px; font-size: 18px; font-weight: bold; display: none; }
-    </style>
-</head>
-<body>
-
-    <div id="debug-console">等待操作日志...<br>当前版本: v3.0 Debug</div>
-
-    <div class="container">
-        <h1 style="text-align:center;">百味源餐馆</h1>
-        <div id="menu-container"></div>
-        <div class="remark-section">
-            <label>备注</label>
-            <textarea id="order-remark" class="remark-input" placeholder="备注..."></textarea>
-        </div>
-        <div class="checkout-container">
-            <button id="checkout-btn" onclick="submitOrder()">去结算</button>
-        </div>
-    </div>
-
-    <script>
-        // --- 强力日志函数 ---
-        function log(msg) {
-            const consoleDiv = document.getElementById('debug-console');
-            const time = new Date().toLocaleTimeString();
-            consoleDiv.innerHTML += `[${time}] ${msg}<br>`;
+        #checkout-btn {
+            width: 100%; 
+            height: 50px; 
+            background-color: #2481cc; /* 蓝色 */
+            color: white; 
+            border: none; 
+            border-radius: 12px; 
+            font-size: 18px; 
+            font-weight: bold; 
+            cursor: pointer;
+            display: none; /* 默认隐藏 */
+            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            transition: background-color 0.2s;
         }
-
-        // 捕获全局错误
-        window.onerror = function(message, source, lineno, colno, error) {
-            log(`❌ 全局错误: ${message} (Line: ${lineno})`);
-        };
-
-        // --- 初始化 Telegram ---
-        const tg = window.Telegram.WebApp;
         
-        try {
-            log("正在初始化 Telegram SDK...");
-            tg.expand();
-            log("SDK 版本: " + tg.version);
-            log("平台: " + tg.platform);
-            
-            // 检查 initData (非常重要，如果没有这个，说明连接没建立)
-            if (!tg.initData) {
-                log("⚠️ 警告: initData 为空！可能未在 Telegram 内部正确打开。");
-            } else {
-                log("✅ 连接成功，用户数据已获取。");
-            }
-
-        } catch (e) {
-            log("❌ 初始化失败: " + e.message);
+        #checkout-btn:active {
+            background-color: #1a6cb0; 
+            transform: translateY(2px);
         }
-
-        // --- 菜单数据 ---
-        const menuData = [
-            { id: 1, name: "牛肉面", price: 12.99, image: "" },
-            { id: 2, name: "炒饭", price: 9.50, image: "" },
-            { id: 3, name: "可乐", price: 2.00, image: "" }
-        ];
-
-        let cart = {}; 
-
-        function renderMenu() {
-            const container = document.getElementById('menu-container');
-            container.innerHTML = ''; 
-            menuData.forEach(item => {
-                const card = document.createElement('div');
-                card.className = 'item-card';
-                const count = cart[item.id] ? cart[item.id].quantity : 0;
-                const showControls = count > 0 ? 'inline-block' : 'none';
-                
-                card.innerHTML = `
-                    <div class="item-img" style="background:#ccc"></div>
-                    <div class="item-info">
-                        <div class="item-title">${item.name}</div>
-                        <div class="item-price">$${item.price.toFixed(2)}</div>
-                    </div>
-                    <div class="item-controls">
-                        <button class="btn btn-remove" style="display: ${showControls}" onclick="updateCart(${item.id}, -1)">-</button>
-                        <span class="count" style="display: ${showControls}">${count}</span>
-                        <button class="btn" onclick="updateCart(${item.id}, 1)">+</button>
-                    </div>
-                `;
-                container.appendChild(card);
-            });
-        }
-
-        function updateCart(itemId, change) {
-            if (!cart[itemId]) cart[itemId] = { ...menuData.find(i => i.id === itemId), quantity: 0 };
-            cart[itemId].quantity += change;
-            if (cart[itemId].quantity <= 0) delete cart[itemId];
-            renderMenu();
-            updateCustomButton();
-        }
-
-        function updateCustomButton() {
-            const btn = document.getElementById('checkout-btn');
-            let totalQty = 0;
-            let totalPrice = 0;
-            for (let id in cart) {
-                totalQty += cart[id].quantity;
-                totalPrice += cart[id].quantity * cart[id].price;
-            }
-            if (totalQty > 0) {
-                btn.style.display = 'block'; 
-                btn.innerText = `去结算 ($${totalPrice.toFixed(2)})`;
-            } else {
-                btn.style.display = 'none';
-            }
-        }
-
-        // --- 核心：提交订单 ---
-        function submitOrder() {
-            log("👉 按钮被点击了！开始执行 submitOrder...");
-            
-            try {
-                const remarkText = document.getElementById('order-remark').value;
-                const finalOrder = { cart: cart, remark: remarkText };
-                const dataStr = JSON.stringify(finalOrder);
-                
-                log("📦 数据打包完成: " + dataStr.substring(0, 20) + "...");
-
-                if (tg && tg.sendData) {
-                    log("🚀 正在调用 tg.sendData...");
-                    tg.sendData(dataStr);
-                    log("✅ tg.sendData 调用完毕 (如果页面没关，说明发送失败)");
-                } else {
-                    log("❌ 致命错误: tg.sendData 不存在！");
-                }
-                
-            } catch (error) {
-                log("❌ 运行报错: " + error.message);
-            }
-        }
-
-        renderMenu();
-    </script>
-</body>
-</html>
