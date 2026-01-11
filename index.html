@@ -261,16 +261,31 @@
         }
 
         Telegram.WebApp.onEvent('mainButtonClicked', function(){
-            const remarkText = document.getElementById('order-remark').value;
-            const finalOrder = {
-                cart: cart,
-                remark: remarkText
-            };
-            tg.sendData(JSON.stringify(finalOrder)); 
-        });
+            // 调试弹窗 1：证明按钮点击被捕获了
+            alert("正在发送订单..."); 
 
+            try {
+                const remarkText = document.getElementById('order-remark').value;
+                const finalOrder = {
+                    cart: cart,
+                    remark: remarkText
+                };
+                
+                // 打印数据看看对不对
+                const dataStr = JSON.stringify(finalOrder);
+                // alert("数据内容: " + dataStr); 
+
+                // 发送数据
+                tg.sendData(dataStr); 
+                
+            } catch (error) {
+                // 调试弹窗 2：如果有错，告诉我错在哪
+                alert("出错啦: " + error.message);
+            }
+        });
         renderMenu();
 
     </script>
 </body>
+
 </html>
