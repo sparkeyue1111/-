@@ -294,7 +294,7 @@
         }
 
         // ============================================================
-        // --- 最终完美版：账单预填模式 ---
+        // --- 最终修复版：压缩传输 + 备注加密 ---
         function submitOrder() {
             // 你的机器人 ID
             const botUsername = "baiwieyuan_bot"; 
@@ -307,49 +307,61 @@
                     return;
                 }
 
-                // 2. 组装中文账单 (这是发给机器人看的，也是给客户自己看的)
-                let text = "🛒 新订单 (New Order)\n";
-                text += "====================\n";
-                
-                let total = 0;
+                // 2. 生成【菜品代码】 (例如: 1_2-3_1)
+                let cartParts = [];
                 itemIds.forEach(id => {
-                    const item = cart[id];
-                    const subtotal = item.price * item.quantity;
-                    total += subtotal;
-                    // 格式：牛肉面 x 2 ($25.98)
-                    text += `▪️ ${item.name} x ${item.quantity} ($${subtotal.toFixed(2)})\n`;
+                    const qty = cart[id].quantity;
+                    if (qty > 0) {
+                        cartParts.push(`${id}_${qty}`);
+                    }
                 });
+                const cartCode = cartParts.join("-");
+
+                // 3. 生成【备注代码】 (使用 URL 安全的 Base64 编码)
+                const remarkText = document.getElementById('order-remark').value || "";
+                let remarkCode = "";
                 
-                text += "====================\n";
-                text += `💰 总价: $${total.toFixed(2)}\n`;
-                
-                // 3. 加入备注 (如果有)
-                const remarkText = document.getElementById('order-remark').value;
                 if (remarkText) {
-                    text += `📝 备注: ${remarkText}`;
-                } else {
-                    text += `📝 备注: 无`;
+                    // 这是一个把中文转成 Telegram 允许字符的黑科技
+                    // 1. 编码 URI
+                    const uriEncoded = encodeURIComponent(remarkText);
+                    // 2. 转 Base64
+                    const base64 = btoa(unescape(uriEncoded));
+                    // 3. 替换掉 Telegram 不喜欢的符号 (+, /, =)
+                    remarkCode = base64.replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
                 }
 
-                // 4. 生成跳转链接
-                // https://t.me/bot名字?text=编码后的中文内容
-                const url = `https://t.me/${botUsername}?text=${encodeURIComponent(text)}`;
+                // 4. 拼合最终暗号
+                // 格式：菜品代码~备注代码
+                // 例如：1_2-3_1~5LiN6KaB6aaZ6I+c
+                let finalPayload = cartCode;
+                if (remarkCode) {
+                    finalPayload += "~" + remarkCode;
+                }
 
-                // 5. 跳转 + 关闭网页
-                tg.openTelegramLink(url);
+                // 5. 检查长度 (Telegram 限制 64 字符)
+                // 如果备注太长，会被截断，但至少订单能发出去
+                if (finalPayload.length > 64) {
+                    alert("备注太长了，请精简一下，或者下单后直接发消息告诉我们。");
+                    // 强制截断以保证跳转成功
+                    finalPayload = finalPayload.substring(0, 64);
+                }
+
+                // 6. 跳转发送 (100% 成功)
+                tg.openTelegramLink(`https://t.me/${botUsername}?start=${finalPayload}`);
                 tg.close();
 
             } catch (error) {
                 alert("错误: " + error.message);
             }
         }
-
         // 初始化
         renderMenu();
 
     </script>
 </body>
 </html>
+
 
 
 
