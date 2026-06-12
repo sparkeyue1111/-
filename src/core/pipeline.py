@@ -11,6 +11,7 @@ A股自选股智能分析系统 - 核心分析流水线
 4. 提供股票分析的核心功能
 """
 
+import csv
 import logging
 import threading
 import time
@@ -18,6 +19,7 @@ import uuid
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
 from typing import List, Dict, Any, Optional, Tuple, Callable
 
 import pandas as pd
@@ -391,6 +393,10 @@ class StockAnalysisPipeline:
                 code,
                 fundamental_context,
             )
+            fundamental_context = self._augment_fundamental_context_with_strategy_layer(
+                code,
+                fundamental_context,
+            )
 
             # P0: write-only snapshot, fail-open, no read dependency on this table.
             try:
@@ -483,6 +489,21 @@ class StockAnalysisPipeline:
             else:
                 logger.info(f"{stock_name}({code}) 搜索服务不可用，跳过情报搜索")
 
+            if (not news_context) or not news_result_count:
+                fallback_news_context, fallback_news_count = self._build_news_fallback_context(
+                    code,
+                    stock_name,
+                )
+                if fallback_news_context:
+                    news_context = fallback_news_context
+                    news_result_count = fallback_news_count
+                    logger.info(
+                        "%s(%s) 新闻搜索无实时结果，已使用历史新闻/公告证据兜底 %s 条",
+                        stock_name,
+                        code,
+                        fallback_news_count,
+                    )
+
             # Step 4.5: Social sentiment intelligence (US stocks only)
             if self.social_sentiment_service is not None and self.social_sentiment_service.is_available and is_us_stock_code(code):
                 try:
@@ -513,12 +534,19 @@ class StockAnalysisPipeline:
                     'today': {},
                     'yesterday': {}
                 }
+
+            analysis_chip_data = chip_data or self._build_chip_proxy_context(
+                code,
+                trend_result,
+                realtime_quote,
+                context,
+            )
             
             # Step 6: 增强上下文数据（添加实时行情、筹码、趋势分析结果、股票名称）
             enhanced_context = self._enhance_context(
                 context, 
                 realtime_quote, 
-                chip_data,
+                analysis_chip_data,
                 trend_result,
                 stock_name,  # 传入股票名称
                 fundamental_context,
@@ -544,7 +572,7 @@ class StockAnalysisPipeline:
                     enhanced_context=enhanced_context,
                     realtime_quote=realtime_quote,
                     trend_result=trend_result,
-                    chip_data=chip_data,
+                    chip_data=analysis_chip_data,
                     fundamental_context=fundamental_context,
                     news_context=news_context,
                     news_result_count=news_result_count,
@@ -615,7 +643,7 @@ class StockAnalysisPipeline:
 
             # Step 7.6: chip_structure fallback (Issue #589) and unavailable collapse
             if result:
-                normalize_chip_structure_availability(result, chip_data)
+                normalize_chip_structure_availability(result, analysis_chip_data)
 
             # Step 7.7: price_position fallback
             if result:
@@ -650,7 +678,7 @@ class StockAnalysisPipeline:
                         news_content=news_context,
                         news_result_count=news_result_count,
                         realtime_quote=realtime_quote,
-                        chip_data=chip_data,
+                        chip_data=analysis_chip_data,
                         analysis_context_pack_overview=analysis_context_pack_overview,
                         market_phase_summary=market_phase_summary,
                     )
@@ -682,6 +710,346 @@ class StockAnalysisPipeline:
             logger.exception(f"{stock_name}({code}) 详细错误信息:")
             return None
     
+
+    def _project_data_dir(self) -> Path:
+        return Path(__file__).resolve().parents[2] / "data"
+
+    def _latest_data_file(self, subdir: str, pattern: str) -> Optional[Path]:
+        directory = self._project_data_dir() / subdir
+        if not directory.exists():
+            return None
+        files = sorted(directory.glob(pattern), key=lambda p: p.name, reverse=True)
+        return files[0] if files else None
+
+    def _read_latest_csv_row_by_code(
+        self,
+        subdir: str,
+        pattern: str,
+        code: str,
+    ) -> Tuple[Optional[Dict[str, Any]], Optional[str]]:
+        path = self._latest_data_file(subdir, pattern)
+        if path is None:
+            return None, None
+        normalized = normalize_stock_code(code)
+        try:
+            with path.open("r", encoding="utf-8-sig", newline="") as fh:
+                for row in csv.DictReader(fh):
+                    row_code = normalize_stock_code(
+                        str(row.get("code") or row.get("stock_code") or "")
+                    )
+                    if row_code == normalized:
+                        return dict(row), path.name
+        except Exception as exc:
+            logger.debug("读取策略层 CSV 失败 %s: %s", path, exc)
+        return None, path.name
+
+    @staticmethod
+    def _compact_csv_row(
+        row: Optional[Dict[str, Any]],
+        fields: List[str],
+    ) -> Dict[str, Any]:
+        if not isinstance(row, dict):
+            return {}
+        compact: Dict[str, Any] = {}
+        for field in fields:
+            value = row.get(field)
+            if value not in (None, ""):
+                compact[field] = value
+        return compact
+
+    def _augment_fundamental_context_with_strategy_layer(
+        self,
+        code: str,
+        fundamental_context: Optional[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        if isinstance(fundamental_context, dict):
+            enriched = dict(fundamental_context)
+        else:
+            enriched = self.fetcher_manager.build_failed_fundamental_context(
+                code,
+                "invalid fundamental context",
+            )
+
+        datasets: Dict[str, Any] = {}
+        dataset_files: List[str] = []
+        financial_row, financial_file = self._read_latest_csv_row_by_code(
+            "financial_statements",
+            "current_financial_statement_scores.csv",
+            code,
+        )
+        financial = self._compact_csv_row(
+            financial_row,
+            [
+                "report_date",
+                "financial_statement_score",
+                "statement_coverage_score",
+                "available_statement_metric_count",
+                "financial_statement_notes",
+                "financial_statement_warnings",
+                "statement_errors",
+                "stmt_revenue_yoy",
+                "stmt_net_profit_yoy",
+                "stmt_ocf_to_profit",
+                "stmt_debt_ratio",
+                "stmt_receivable_to_revenue",
+                "stmt_inventory_to_revenue",
+                "stmt_goodwill_to_assets",
+            ],
+        )
+        if financial:
+            datasets["financial_statement"] = financial
+            if financial_file:
+                dataset_files.append(f"financial_statements/{financial_file}")
+
+        candidate_row, candidate_file = self._read_latest_csv_row_by_code(
+            "fundamental_first",
+            "current_fundamental_first_candidates.csv",
+            code,
+        )
+        candidate = self._compact_csv_row(
+            candidate_row,
+            [
+                "name",
+                "decision",
+                "action",
+                "research_status",
+                "failed_gates",
+                "fundamental_first_score",
+                "company_quality_score",
+                "industry_logic_score",
+                "value_gap_score",
+                "opportunity_score",
+                "learning_score",
+                "pool_fundamental_score",
+                "financial_quality_score",
+                "financial_statement_score",
+                "statement_coverage_score",
+                "financial_statement_warnings",
+                "data_quality_score",
+                "data_quality_status",
+                "data_quality_warnings",
+                "evidence_quality_score",
+                "valuation_score",
+                "valuation_level",
+                "expectation_gap_score",
+                "expectation_gap",
+                "trade_score",
+                "current_price",
+                "risk_stop",
+                "plan_level",
+                "final_action",
+                "warnings",
+                "research_next_step",
+            ],
+        )
+        if candidate:
+            datasets["fundamental_first"] = candidate
+            if candidate_file:
+                dataset_files.append(f"fundamental_first/{candidate_file}")
+
+        quality_row, quality_file = self._read_latest_csv_row_by_code(
+            "data_quality",
+            "current_data_quality_stock.csv",
+            code,
+        )
+        quality = self._compact_csv_row(
+            quality_row,
+            [
+                "data_quality_score",
+                "data_quality_status",
+                "data_quality_warnings",
+            ],
+        )
+        if quality:
+            datasets["data_quality"] = quality
+            if quality_file:
+                dataset_files.append(f"data_quality/{quality_file}")
+
+        if not datasets:
+            return enriched
+
+        enriched["strategy_layer"] = datasets
+        coverage = dict(enriched.get("coverage") or {})
+        coverage["strategy_layer"] = "available"
+        enriched["coverage"] = coverage
+        source_chain = list(enriched.get("source_chain") or [])
+        source_chain.append(
+            {
+                "source": "star_assistant_v21_strategy_layer",
+                "datasets": dataset_files,
+            }
+        )
+        enriched["source_chain"] = source_chain
+
+        raw_status = str(enriched.get("status") or "").lower()
+        if raw_status in {"", "failed", "missing"}:
+            enriched["status"] = "partial"
+        return enriched
+
+    @staticmethod
+    def _maybe_float(value: Any) -> Optional[float]:
+        try:
+            if value in (None, ""):
+                return None
+            return float(value)
+        except (TypeError, ValueError):
+            return None
+
+    def _build_chip_proxy_context(
+        self,
+        code: str,
+        trend_result: Optional[TrendAnalysisResult],
+        realtime_quote: Any,
+        context: Optional[Dict[str, Any]],
+    ) -> Optional[Dict[str, Any]]:
+        trend = trend_result.to_dict() if hasattr(trend_result, "to_dict") else {}
+        if not trend and not realtime_quote and not isinstance(context, dict):
+            return None
+
+        today = context.get("today") if isinstance(context, dict) else {}
+        today = today if isinstance(today, dict) else {}
+        current_price = (
+            self._maybe_float(trend.get("current_price"))
+            or self._maybe_float(getattr(realtime_quote, "price", None))
+            or self._maybe_float(today.get("close"))
+        )
+        ma20 = self._maybe_float(trend.get("ma20") or today.get("ma20"))
+        ma5 = self._maybe_float(trend.get("ma5") or today.get("ma5"))
+        ma10 = self._maybe_float(trend.get("ma10") or today.get("ma10"))
+        if current_price is None and ma20 is None:
+            return None
+
+        price_to_ma20_pct = None
+        if current_price is not None and ma20:
+            price_to_ma20_pct = round((current_price / ma20 - 1) * 100, 2)
+
+        return {
+            "status": "estimated",
+            "is_proxy": True,
+            "source": "trend_price_volume_proxy",
+            "code": normalize_stock_code(code),
+            "date": today.get("date") or (context or {}).get("date"),
+            "current_price": current_price,
+            "ma5": ma5,
+            "ma10": ma10,
+            "ma20": ma20,
+            "price_to_ma20_pct": price_to_ma20_pct,
+            "ma_alignment": trend.get("ma_alignment"),
+            "trend_status": trend.get("trend_status"),
+            "volume_status": trend.get("volume_status"),
+            "volume_ratio_5d": trend.get("volume_ratio_5d"),
+            "signal_score": trend.get("signal_score"),
+            "proxy_note": "真实筹码分布未获取；这里使用价格、均线和量能代理判断拥挤度，不能等同真实筹码成本分布。",
+            "warnings": ["chip_distribution_proxy"],
+        }
+
+    def _chip_data_to_context(self, chip_data: Any, realtime_quote: Any) -> Dict[str, Any]:
+        if not chip_data:
+            return {}
+        if isinstance(chip_data, dict):
+            return {key: value for key, value in chip_data.items() if value is not None}
+
+        current_price = getattr(realtime_quote, 'price', 0) if realtime_quote else 0
+        payload = {
+            'profit_ratio': getattr(chip_data, "profit_ratio", None),
+            'avg_cost': getattr(chip_data, "avg_cost", None),
+            'concentration_90': getattr(chip_data, "concentration_90", None),
+            'concentration_70': getattr(chip_data, "concentration_70", None),
+            'chip_status': chip_data.get_chip_status(current_price or 0)
+            if hasattr(chip_data, "get_chip_status")
+            else None,
+            'source': getattr(chip_data, "source", None),
+            'date': getattr(chip_data, "date", None),
+        }
+        return {key: value for key, value in payload.items() if value is not None}
+
+    @staticmethod
+    def _format_news_date(value: Any) -> str:
+        if isinstance(value, datetime):
+            return value.strftime("%Y-%m-%d")
+        if isinstance(value, date):
+            return value.isoformat()
+        text = str(value or "").strip()
+        return text[:10] if text else "未知日期"
+
+    def _build_news_fallback_context(
+        self,
+        code: str,
+        stock_name: str,
+        limit: int = 5,
+    ) -> Tuple[Optional[str], Optional[int]]:
+        items: List[str] = []
+        try:
+            recent_news = self.db.get_recent_news(code, days=30, limit=limit)
+        except Exception as exc:
+            logger.debug("%s 历史新闻兜底读取失败: %s", code, exc)
+            recent_news = []
+
+        for item in recent_news or []:
+            title = str(getattr(item, "title", "") or "").strip()
+            if not title:
+                continue
+            published = self._format_news_date(
+                getattr(item, "published_date", None) or getattr(item, "fetched_at", None)
+            )
+            source = str(getattr(item, "source", "") or getattr(item, "provider", "") or "历史新闻库").strip()
+            snippet = str(getattr(item, "snippet", "") or "").strip()
+            url = str(getattr(item, "url", "") or "").strip()
+            line = f"- {published} [{source}] {title}"
+            if snippet:
+                line += f"：{snippet[:180]}"
+            if url:
+                line += f" ({url})"
+            items.append(line)
+            if len(items) >= limit:
+                break
+
+        if not items:
+            items = self._build_evidence_news_fallback(code, limit=limit)
+
+        if not items:
+            return None, None
+
+        header = (
+            f"【新闻/公告兜底数据】{stock_name}({normalize_stock_code(code)})\\n"
+            "实时新闻搜索未返回有效结果，以下来自历史新闻库或公告证据层；用于补充背景，不代表最新全量舆情。"
+        )
+        return header + "\\n" + "\\n".join(items), len(items)
+
+    def _build_evidence_news_fallback(self, code: str, limit: int = 5) -> List[str]:
+        directory = self._project_data_dir() / "evidence_hub"
+        if not directory.exists():
+            return []
+        normalized = normalize_stock_code(code)
+        items: List[str] = []
+        files = sorted(directory.glob("evidence_events_*.csv"), key=lambda p: p.name, reverse=True)
+        for path in files:
+            try:
+                with path.open("r", encoding="utf-8-sig", newline="") as fh:
+                    for row in csv.DictReader(fh):
+                        row_code = normalize_stock_code(str(row.get("code") or ""))
+                        if row_code != normalized:
+                            continue
+                        title = str(row.get("title") or "").strip()
+                        if not title:
+                            continue
+                        event_date = str(row.get("event_date") or row.get("date") or "").strip() or "未知日期"
+                        source = str(row.get("source_name") or row.get("source_type") or "公告证据层").strip()
+                        excerpt = str(row.get("pdf_excerpt") or row.get("pdf_summary") or "").strip()
+                        url = str(row.get("url") or "").strip()
+                        line = f"- {event_date[:10]} [{source}] {title}"
+                        if excerpt:
+                            line += f"：{excerpt[:180]}"
+                        if url:
+                            line += f" ({url})"
+                        items.append(line)
+                        if len(items) >= limit:
+                            return items
+            except Exception as exc:
+                logger.debug("公告证据兜底读取失败 %s: %s", path, exc)
+        return items
+
+
     def _enhance_context(
         self,
         context: Dict[str, Any],
@@ -752,16 +1120,10 @@ class StockAnalysisPipeline:
             # 移除 None 值以减少上下文大小
             enhanced['realtime'] = {k: v for k, v in enhanced['realtime'].items() if v is not None}
         
-        # 添加筹码分布
-        if chip_data:
-            current_price = getattr(realtime_quote, 'price', 0) if realtime_quote else 0
-            enhanced['chip'] = {
-                'profit_ratio': chip_data.profit_ratio,
-                'avg_cost': chip_data.avg_cost,
-                'concentration_90': chip_data.concentration_90,
-                'concentration_70': chip_data.concentration_70,
-                'chip_status': chip_data.get_chip_status(current_price or 0),
-            }
+        # 添加筹码分布：真实筹码优先，缺失时可接入趋势/量价代理层。
+        chip_context = self._chip_data_to_context(chip_data, realtime_quote)
+        if chip_context:
+            enhanced['chip'] = chip_context
         
         # 添加趋势分析结果
         if trend_result:

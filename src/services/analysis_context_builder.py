@@ -266,7 +266,7 @@ def _build_technical_block(
     )
     warnings = [_REALTIME_OVERLAY_WARNING] if has_realtime_overlay else []
     block_status = (
-        ContextFieldStatus.PARTIAL
+        ContextFieldStatus.ESTIMATED
         if has_realtime_overlay
         else ContextFieldStatus.AVAILABLE
     )
@@ -338,19 +338,29 @@ def _build_chip_block(artifacts: PipelineAnalysisArtifacts) -> AnalysisContextBl
         )
 
     source = _source_text(chip.get("source"))
+    is_proxy = bool(chip.get("is_proxy")) or str(chip.get("status") or "").lower() == "estimated"
+    status = ContextFieldStatus.ESTIMATED if is_proxy else ContextFieldStatus.AVAILABLE
+    raw_warnings = chip.get("warnings") if isinstance(chip.get("warnings"), list) else []
+    warnings = [str(item) for item in raw_warnings if item]
+    metadata = {"date": chip.get("date")} if chip.get("date") else {}
+    if is_proxy:
+        metadata["proxy_note"] = chip.get("proxy_note")
+        metadata = {key: value for key, value in metadata.items() if value}
     return AnalysisContextBlock(
-        status=ContextFieldStatus.AVAILABLE,
+        status=status,
         items={
             key: AnalysisContextItem(
-                status=ContextFieldStatus.AVAILABLE,
+                status=status if key != "warnings" else ContextFieldStatus.AVAILABLE,
                 value=value,
                 source=source,
+                warnings=warnings if key != "warnings" else [],
             )
             for key, value in chip.items()
             if value is not None
         },
         source=source,
-        metadata={"date": chip.get("date")} if chip.get("date") else {},
+        warnings=warnings,
+        metadata=metadata,
     )
 
 
