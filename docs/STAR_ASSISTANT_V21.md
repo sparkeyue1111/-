@@ -501,3 +501,20 @@ BACKTEST_YEARS=10 BACKTEST_V2_WORKERS=4 bash scripts/star_assistant_v21/build_ma
 - 不建议忽略止损、估值透支、现金流恶化和大盘风控。
 
 更合理的使用方式是：把它当成“自动研究员 + 策略纪律表 + 模拟盘记录员”，先跑 3 到 6 个月模拟盘，再决定是否把某些规则迁移到小资金实盘。
+
+
+## V2.2 三层增强
+
+- 数据源质量层：每天检查 AKShare 行情接口、核心产物字段、缺失率和股票级数据质量；若出现严重问题，基本面闸门会阻断交易候选。
+- 财务三表增强层：对策略池股票补抓利润表、资产负债表、现金流量表，加入营收/利润增长、经营现金流、负债率、应收/存货/商誉压力。
+- 前向验证系统：每天保存当时的候选、评分、决策、价格和计划，未来回填 30/60/90 天收益，用真实前向表现检验 AI 和规则是否有效。
+
+新增命令：
+
+```bash
+bash scripts/star_assistant_v21/build_financial_statements.sh
+bash scripts/star_assistant_v21/build_data_quality.sh
+bash scripts/star_assistant_v21/build_forward_validation.sh
+```
+
+完整流水线已升级为 12 步：学习池、财务三表、AI 单票分析、证据层、估值层、最终层、数据质量、基本面闸门、模拟盘、持仓复盘、策略验证、前向验证。

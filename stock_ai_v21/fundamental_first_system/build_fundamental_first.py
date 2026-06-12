@@ -18,6 +18,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--valuation-dir', default='/app/data/valuation_layer')
     parser.add_argument('--final-layer-dir', default='/app/data/final_layers')
     parser.add_argument('--historical-backtest-dir', default='/app/data/historical_backtest')
+    parser.add_argument('--financial-statements-dir', default='/app/data/financial_statements')
+    parser.add_argument('--data-quality-dir', default='/app/data/data_quality')
     parser.add_argument('--output-dir', default='/app/data/fundamental_first')
     parser.add_argument('--report-dir', default='/app/reports')
     parser.add_argument('--date', default=datetime.now().strftime('%Y%m%d'))
@@ -26,6 +28,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--min-financial-score', type=float, default=65.0)
     parser.add_argument('--min-evidence-score', type=float, default=55.0)
     parser.add_argument('--min-expectation-gap-score', type=float, default=55.0)
+    parser.add_argument('--min-financial-statement-score', type=float, default=55.0)
+    parser.add_argument('--min-data-quality-score', type=float, default=65.0)
     return parser.parse_args()
 
 
@@ -186,18 +190,34 @@ def add_prefix(frame: pd.DataFrame, prefix: str) -> pd.DataFrame:
 
 
 def has_red_flag(text: str) -> bool:
-    keys = ['经营现金流为负', '退市', '处罚', '立案', '降级', '无法表示', '保留意见']
+    keys = ['经营现金流为负', '退市', '处罚', '立案', '降级', '无法表示', '保留意见', '三表增强层质量偏弱', '经营现金流/利润偏低']
     return any(key in text for key in keys)
 
 
-def classify(row: pd.Series, market_state: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
+def load_data_quality_state(data_quality_dir: Path) -> dict[str, Any]:
+    state = read_json(data_quality_dir / 'current_data_quality.json')
+    if not isinstance(state, dict):
+        return {'status': 'MISSING', 'overall_score': 75.0, 'critical_block': False, 'notes': '数据质量层缺失，暂按中性处理'}
+    return state
+
+
+def enhanced_financial_score(base_score: float, statement_score: float) -> float:
+    if math.isnan(statement_score) or statement_score <= 0:
+        return base_score
+    return clamp(base_score * 0.62 + statement_score * 0.38)
+
+
+def classify(row: pd.Series, market_state: dict[str, Any], data_quality_state: dict[str, Any], args: argparse.Namespace) -> dict[str, Any]:
     code = normalize_code(row.get('code'))
     name = safe_text(row.get('name')) or code
     trade = row.get('trade') if isinstance(row.get('trade'), dict) else {}
     plan = row.get('plan') if isinstance(row.get('plan'), dict) else {}
     learning_score = coalesce_float(row.get('score'), row.get('preselect_score'), default=0.0)
     pool_score = coalesce_float(row.get('fundamental_score'), default=0.0)
-    financial_score = coalesce_float(row.get('final_financial_quality_score'), row.get('fin_financial_quality_score'), row.get('fundamental_score'), default=0.0)
+    base_financial_score = coalesce_float(row.get('final_financial_quality_score'), row.get('fin_financial_quality_score'), row.get('fundamental_score'), default=0.0)
+    statement_score = coalesce_float(row.get('fs_financial_statement_score'), default=math.nan)
+    statement_coverage = coalesce_float(row.get('fs_statement_coverage_score'), default=math.nan)
+    financial_score = enhanced_financial_score(base_financial_score, statement_score)
     evidence_raw = coalesce_float(row.get('final_evidence_quality_score'), row.get('evidence_evidence_quality_score'), default=math.nan)
     research_raw = coalesce_float(row.get('final_final_research_score'), default=math.nan)
     valuation_raw = coalesce_float(row.get('val_valuation_score'), default=math.nan)
@@ -208,22 +228,41 @@ def classify(row: pd.Series, market_state: dict[str, Any], args: argparse.Namesp
     valuation_score = 45.0 if math.isnan(valuation_raw) else valuation_raw
     expectation_score = 45.0 if math.isnan(expectation_raw) else expectation_raw
     trade_score = coalesce_float(trade.get('trade_score'), row.get('preselect_score'), default=0.0)
-    metric_count = int(coalesce_float(row.get('available_metric_count'), row.get('fin_available_metric_count'), default=0))
+    metric_count = int(coalesce_float(row.get('available_metric_count'), row.get('fin_available_metric_count'), row.get('fs_available_statement_metric_count'), default=0))
     valuation_level = safe_text(row.get('val_valuation_level')) or '估值未确认'
     expectation_gap = safe_text(row.get('val_expectation_gap')) or '预期差未确认'
-    warnings = '；'.join([safe_text(row.get('fundamental_warnings')), safe_text(row.get('fin_financial_warnings')), safe_text(row.get('evidence_evidence_warnings')), safe_text(row.get('val_valuation_warning')), safe_text(plan.get('downgrade_rule'))])
-    company_score = clamp(pool_score * 0.45 + financial_score * 0.35 + learning_score * 0.20)
+    data_quality_score = coalesce_float(row.get('dq_data_quality_score'), data_quality_state.get('overall_score'), default=75.0)
+    data_quality_status = safe_text(row.get('dq_data_quality_status')) or safe_text(data_quality_state.get('status')) or 'MISSING'
+    data_quality_warnings = safe_text(row.get('dq_data_quality_warnings')) or safe_text(data_quality_state.get('notes'))
+    global_data_quality_score = safe_float(data_quality_state.get('overall_score'), 75.0)
+    global_critical_block = bool(data_quality_state.get('critical_block'))
+    warnings = '；'.join([
+        safe_text(row.get('fundamental_warnings')),
+        safe_text(row.get('fin_financial_warnings')),
+        safe_text(row.get('fs_financial_statement_warnings')),
+        safe_text(row.get('evidence_evidence_warnings')),
+        safe_text(row.get('val_valuation_warning')),
+        data_quality_warnings,
+        safe_text(plan.get('downgrade_rule')),
+    ])
+    company_score = clamp(pool_score * 0.38 + financial_score * 0.42 + learning_score * 0.12 + data_quality_score * 0.08)
     industry_score = clamp(evidence_score * 0.60 + research_score * 0.40)
     value_score = clamp(expectation_score * 0.60 + valuation_score * 0.40)
     opportunity_score = clamp(trade_score)
     total_score = clamp(company_score * 0.30 + industry_score * 0.25 + value_score * 0.20 + opportunity_score * 0.25)
     fundamental_gate = financial_score >= args.min_financial_score and pool_score >= 60 and metric_count >= 3
+    statement_gate = (not math.isnan(statement_score)) and statement_score >= args.min_financial_statement_score and (math.isnan(statement_coverage) or statement_coverage >= 40)
+    data_quality_gate = (not global_critical_block) and global_data_quality_score >= args.min_data_quality_score and data_quality_score >= args.min_data_quality_score and data_quality_status != 'BAD'
     evidence_gate = evidence_score >= args.min_evidence_score and research_score >= 58
     valuation_gate = expectation_score >= args.min_expectation_gap_score and valuation_level not in {'估值极高'} and expectation_gap not in {'成长强但估值透支', '低质量+高估值风险'}
     trade_gate = trade_score >= args.entry_threshold
     market_ok = bool(market_state.get('market_ok'))
     red_flag = has_red_flag(warnings)
     failed = []
+    if not data_quality_gate:
+        failed.append('数据质量闸门未过')
+    if not statement_gate:
+        failed.append('财务三表增强闸门未过')
     if not fundamental_gate:
         failed.append('财务/基本面闸门未过')
     if not evidence_gate:
@@ -236,16 +275,22 @@ def classify(row: pd.Series, market_state: dict[str, Any], args: argparse.Namesp
         failed.append('市场风控未过')
     if red_flag:
         failed.append('存在硬红旗或最终层降级')
-    if not has_deep_research and fundamental_gate:
+    if global_critical_block:
+        decision = 'REJECT'
+        action = '关键数据源质量不足，暂停升级交易候选'
+    elif not has_deep_research and fundamental_gate and statement_gate and data_quality_gate:
         decision = 'PENDING_RESEARCH'
         action = '待深度研究，不做否定判断'
         failed = ['尚未进入本轮公告/证据/估值深度研究']
-    elif not red_flag and fundamental_gate and evidence_gate and valuation_gate and trade_gate and market_ok:
+    elif not red_flag and data_quality_gate and statement_gate and fundamental_gate and evidence_gate and valuation_gate and trade_gate and market_ok:
         decision = 'BUY_READY'
         action = '进入现实模拟盘候选'
-    elif not red_flag and fundamental_gate and evidence_gate and total_score >= 62:
+    elif not red_flag and data_quality_gate and statement_gate and fundamental_gate and evidence_gate and total_score >= 62:
         decision = 'WATCH'
         action = '保留观察，等待估值或交易机会'
+    elif not red_flag and fundamental_gate and (not statement_gate or not data_quality_gate):
+        decision = 'PENDING_RESEARCH'
+        action = '基本面有线索，但需补齐数据质量或三表验证'
     else:
         decision = 'REJECT'
         action = '不进入交易机会层'
@@ -267,6 +312,13 @@ def classify(row: pd.Series, market_state: dict[str, Any], args: argparse.Namesp
         'learning_score': round(learning_score, 2),
         'pool_fundamental_score': round(pool_score, 2),
         'financial_quality_score': round(financial_score, 2),
+        'base_financial_quality_score': round(base_financial_score, 2),
+        'financial_statement_score': round(statement_score, 2) if not math.isnan(statement_score) else '',
+        'statement_coverage_score': round(statement_coverage, 2) if not math.isnan(statement_coverage) else '',
+        'financial_statement_warnings': safe_text(row.get('fs_financial_statement_warnings')),
+        'data_quality_score': round(data_quality_score, 2),
+        'data_quality_status': data_quality_status,
+        'data_quality_warnings': data_quality_warnings,
         'available_metric_count': metric_count,
         'evidence_quality_score': round(evidence_score, 2),
         'final_research_score': round(research_score, 2),
@@ -295,6 +347,10 @@ def classify(row: pd.Series, market_state: dict[str, Any], args: argparse.Namesp
 def next_step(decision: str, failed: list[str], expectation_gap: str, valuation_level: str) -> str:
     if decision == 'BUY_READY':
         return '进入现实模拟盘，后续跟踪30/60/90天表现、公告证据和财务共振。'
+    if '数据质量闸门未过' in failed:
+        return '先修复数据源、字段缺失或股票级数据异常，不允许升级交易候选。'
+    if '财务三表增强闸门未过' in failed:
+        return '补齐利润表、资产负债表、现金流量表，复核应收、存货、负债和现金流/利润比。'
     if '估值/预期差闸门未过' in failed:
         return f'等待估值回落或业绩上修，当前为{valuation_level}/{expectation_gap}。'
     if '交易机会闸门未过' in failed:
@@ -315,16 +371,30 @@ def build(args: argparse.Namespace) -> tuple[list[dict[str, Any]], dict[str, Any
     evidence = read_csv(Path(args.evidence_dir) / f'evidence_quality_{date_key}.csv')
     financial = read_csv(Path(args.evidence_dir) / f'financial_quality_{date_key}.csv')
     valuation = read_csv(Path(args.valuation_dir) / f'valuation_score_{date_key}.csv')
+    financial_statements = read_csv(Path(args.financial_statements_dir) / 'current_financial_statement_scores.csv')
+    data_quality_stock = read_csv(Path(args.data_quality_dir) / 'current_data_quality_stock.csv')
+    data_quality_state = load_data_quality_state(Path(args.data_quality_dir))
     final_plan = read_json(Path(args.final_layer_dir) / 'current_final_trade_plan.json') or []
     trade_scores, trade_source = load_trade_scores(Path(args.historical_backtest_dir), date_key)
     market_state = load_market_state(Path(args.historical_backtest_dir), date_key)
-    messages = ["trade_score_source=" + str(trade_source), "market_reason=" + safe_text(market_state.get("market_reason"))]
-    for frame in [fundamental, final_score, evidence, financial, valuation]:
+    messages = [
+        "trade_score_source=" + str(trade_source),
+        "market_reason=" + safe_text(market_state.get("market_reason")),
+        "data_quality_status=" + safe_text(data_quality_state.get("status")) + "/" + str(data_quality_state.get("overall_score")),
+    ]
+    for frame in [fundamental, final_score, evidence, financial, valuation, financial_statements, data_quality_stock]:
         if not frame.empty and 'code' in frame.columns:
             frame['code'] = frame['code'].map(normalize_code)
     merged = fundamental.copy()
     merged['code'] = merged['code'].map(normalize_code)
-    for frame, prefix in [(final_score, 'final_'), (evidence, 'evidence_'), (financial, 'fin_'), (valuation, 'val_')]:
+    for frame, prefix in [
+        (final_score, 'final_'),
+        (evidence, 'evidence_'),
+        (financial, 'fin_'),
+        (valuation, 'val_'),
+        (financial_statements, 'fs_'),
+        (data_quality_stock, 'dq_'),
+    ]:
         merged = merged.merge(add_prefix(frame, prefix), on='code', how='left')
     plan_by_code = {normalize_code(item.get('code')): item for item in final_plan if isinstance(item, dict)}
     rows = []
@@ -333,25 +403,25 @@ def build(args: argparse.Namespace) -> tuple[list[dict[str, Any]], dict[str, Any
         code = normalize_code(item.get('code'))
         item['plan'] = plan_by_code.get(code, {})
         item['trade'] = trade_scores.get(code, {})
-        rows.append(classify(pd.Series(item), market_state, args))
+        rows.append(classify(pd.Series(item), market_state, data_quality_state, args))
     rows = sorted(rows, key=lambda item: item['fundamental_first_score'], reverse=True)[:args.max_candidates]
     return rows, market_state, messages
 
 
 def write_report(path: Path, rows: list[dict[str, Any]], market_state: dict[str, Any], messages: list[str]) -> None:
     lines = [
-        f'# 基本面优先闸门 V1 - {datetime.now():%Y-%m-%d}',
+        f'# 基本面优先闸门 V2.2 - {datetime.now():%Y-%m-%d}',
         '',
-        '定位：先过财务质量、产业证据、估值预期差，再看V2.1交易机会。只有全部通过才进入现实模拟盘候选。',
+        '定位：先过数据质量、财务三表、财务质量、产业证据、估值预期差，再看V2.1交易机会。只有全部通过才进入现实模拟盘候选。',
         '',
         "- 市场风控：" + safe_text(market_state.get("market_reason")),
         '',
         '## 候选结果',
-        '| 排名 | 代码 | 名称 | 结论 | 总分 | 公司质量 | 产业证据 | 估值预期差 | 交易机会 | 未过闸门 |',
-        '|---:|---|---|---|---:|---:|---:|---:|---:|---|',
+        '| 排名 | 代码 | 名称 | 结论 | 总分 | 公司质量 | 三表 | 数据质量 | 产业证据 | 估值预期差 | 交易机会 | 未过闸门 |',
+        '|---:|---|---|---|---:|---:|---:|---:|---:|---:|---:|---|',
     ]
     for idx, row in enumerate(rows, start=1):
-        lines.append("| {idx} | {code} | {name} | {decision} | {total:.2f} | {company:.2f} | {industry:.2f} | {value:.2f} | {opportunity:.2f} | {failed} |".format(idx=idx, code=row["code"], name=row["name"], decision=row["decision"], total=row["fundamental_first_score"], company=row["company_quality_score"], industry=row["industry_logic_score"], value=row["value_gap_score"], opportunity=row["opportunity_score"], failed=row["failed_gates"]))
+        lines.append("| {idx} | {code} | {name} | {decision} | {total:.2f} | {company:.2f} | {stmt} | {dq:.2f} | {industry:.2f} | {value:.2f} | {opportunity:.2f} | {failed} |".format(idx=idx, code=row["code"], name=row["name"], decision=row["decision"], total=row["fundamental_first_score"], company=row["company_quality_score"], stmt=row.get("financial_statement_score", ""), dq=safe_float(row.get("data_quality_score"), 0), industry=row["industry_logic_score"], value=row["value_gap_score"], opportunity=row["opportunity_score"], failed=row["failed_gates"]))
     lines += ['', '## 数据提醒']
     lines.extend(f'- {message}' for message in messages)
     path.write_text('\n'.join(lines).rstrip() + '\n', encoding='utf-8')

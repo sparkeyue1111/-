@@ -10,19 +10,18 @@ LOG_DIR="${LOG_DIR:-$PROJECT_DIR/logs}"
 mkdir -p "$LOG_DIR"
 cd "$PROJECT_DIR"
 
-sudo docker exec "$CONTAINER" python /app/stock_ai_v21/fundamental_first_system/build_fundamental_first.py \
+sudo docker exec "$CONTAINER" python /app/stock_ai_v21/data_quality_system/build_data_quality.py \
   --fundamental-pool-dir /app/data/fundamental_pool \
   --evidence-dir /app/data/evidence_hub \
   --valuation-dir /app/data/valuation_layer \
   --final-layer-dir /app/data/final_layers \
   --historical-backtest-dir /app/data/historical_backtest \
   --financial-statements-dir /app/data/financial_statements \
-  --data-quality-dir /app/data/data_quality \
-  --output-dir /app/data/fundamental_first \
+  --output-dir /app/data/data_quality \
   --report-dir /app/reports \
   --date "$DATE_KEY"
 
 sudo chown -R "$(id -un):$(id -gn)" \
-  "$PROJECT_DIR/data/fundamental_first" \
-  "$PROJECT_DIR/stock_ai_v21/fundamental_first_system" \
-  "$PROJECT_DIR/reports"/fundamental_first_*.md 2>/dev/null || true
+  "$PROJECT_DIR/data/data_quality" \
+  "$PROJECT_DIR/stock_ai_v21/data_quality_system" \
+  "$PROJECT_DIR/reports"/data_quality_*.md 2>/dev/null || true

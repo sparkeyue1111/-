@@ -13,8 +13,8 @@ LOG_DIR="${LOG_DIR:-$PROJECT_DIR/logs}"
 
 mkdir -p "$LOG_DIR"
 
-echo "[pipeline] 1/9 fundamental pool"
-POOL_SIZE="$POOL_SIZE" ANALYZE_COUNT="$ANALYZE_COUNT" $SCRIPT_DIR/run_fundamental_pool.sh
+echo "[pipeline] 1/12 fundamental pool"
+POOL_SIZE="$POOL_SIZE" ANALYZE_COUNT="$ANALYZE_COUNT" "$SCRIPT_DIR/run_fundamental_pool.sh"
 
 STOCK_LIST="$(tr -d "[:space:]" < "$PROJECT_DIR/data/fundamental_pool/current_stock_list.txt")"
 if [[ -z "$STOCK_LIST" ]]; then
@@ -23,8 +23,11 @@ if [[ -z "$STOCK_LIST" ]]; then
 fi
 echo "[pipeline] STOCK_LIST=$STOCK_LIST"
 
+echo "[pipeline] 2/12 financial statements"
+"$SCRIPT_DIR/build_financial_statements.sh"
+
 if [[ "$RUN_ANALYSIS" == "true" ]]; then
-  echo "[pipeline] 2/9 daily_stock_analysis"
+  echo "[pipeline] 3/12 daily_stock_analysis"
   NOTIFY_ARG="--no-notify"
   if [[ "$SEND_NOTIFY" == "true" ]]; then
     NOTIFY_ARG=""
@@ -42,29 +45,35 @@ if [[ "$RUN_ANALYSIS" == "true" ]]; then
     "$ANALYZER_CONTAINER" \
     sh -lc "cd /app && PYTHONPATH=/app python main.py --stocks \"$STOCK_LIST\" --workers 1 --force-run $NOTIFY_ARG $MARKET_REVIEW_ARG"
 else
-  echo "[pipeline] 2/9 daily_stock_analysis skipped by RUN_ANALYSIS=false"
+  echo "[pipeline] 3/12 daily_stock_analysis skipped by RUN_ANALYSIS=false"
 fi
 
-echo "[pipeline] 3/9 evidence hub"
-$SCRIPT_DIR/run_evidence_hub.sh
+echo "[pipeline] 4/12 evidence hub"
+"$SCRIPT_DIR/run_evidence_hub.sh"
 
-echo "[pipeline] 4/9 valuation / expectation layer"
-$SCRIPT_DIR/build_valuation_layer.sh
+echo "[pipeline] 5/12 valuation / expectation layer"
+"$SCRIPT_DIR/build_valuation_layer.sh"
 
-echo "[pipeline] 5/9 final layers"
-$SCRIPT_DIR/build_final_layers.sh
+echo "[pipeline] 6/12 final layers"
+"$SCRIPT_DIR/build_final_layers.sh"
 
-echo "[pipeline] 6/9 fundamental-first gate"
-$SCRIPT_DIR/build_fundamental_first.sh
+echo "[pipeline] 7/12 data quality"
+"$SCRIPT_DIR/build_data_quality.sh"
 
-echo "[pipeline] 7/9 paper portfolio"
-$SCRIPT_DIR/run_paper_portfolio.sh
+echo "[pipeline] 8/12 fundamental-first gate"
+"$SCRIPT_DIR/build_fundamental_first.sh"
 
-echo "[pipeline] 8/9 holding review"
-$SCRIPT_DIR/build_holding_review.sh
+echo "[pipeline] 9/12 paper portfolio"
+"$SCRIPT_DIR/run_paper_portfolio.sh"
 
-echo "[pipeline] 9/9 strategy validation"
-$SCRIPT_DIR/build_strategy_validation.sh
+echo "[pipeline] 10/12 holding review"
+"$SCRIPT_DIR/build_holding_review.sh"
+
+echo "[pipeline] 11/12 strategy validation"
+"$SCRIPT_DIR/build_strategy_validation.sh"
+
+echo "[pipeline] 12/12 forward validation"
+"$SCRIPT_DIR/build_forward_validation.sh"
 
 echo "[pipeline] done"
-ls -1 "$PROJECT_DIR/reports"/final_score_*.md "$PROJECT_DIR/reports"/valuation_expectation_*.md "$PROJECT_DIR/reports"/final_trade_plan_*.md "$PROJECT_DIR/reports"/fundamental_first_*.md "$PROJECT_DIR/reports"/paper_portfolio_*.md "$PROJECT_DIR/reports"/holding_review_*.md "$PROJECT_DIR/reports"/strategy_validation_*.md "$PROJECT_DIR/reports"/system_status_*.md 2>/dev/null | tail -45
+ls -1 "$PROJECT_DIR/reports"/financial_statements_*.md "$PROJECT_DIR/reports"/data_quality_*.md "$PROJECT_DIR/reports"/final_score_*.md "$PROJECT_DIR/reports"/valuation_expectation_*.md "$PROJECT_DIR/reports"/final_trade_plan_*.md "$PROJECT_DIR/reports"/fundamental_first_*.md "$PROJECT_DIR/reports"/paper_portfolio_*.md "$PROJECT_DIR/reports"/holding_review_*.md "$PROJECT_DIR/reports"/strategy_validation_*.md "$PROJECT_DIR/reports"/forward_validation_*.md "$PROJECT_DIR/reports"/system_status_*.md 2>/dev/null | tail -60

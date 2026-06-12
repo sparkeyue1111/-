@@ -4,7 +4,9 @@ import {
   Activity,
   BarChart3,
   ClipboardList,
+  Database,
   FileText,
+  LineChart,
   MessageSquareText,
   RefreshCw,
   Search,
@@ -203,6 +205,13 @@ const FundamentalFirstPage: React.FC = () => {
   const initial = asNumber(state.initial_capital) ?? asNumber(state.initialCapital) ?? 100000;
   const totalReturn = initial > 0 ? ((equity / initial) - 1) * 100 : 0;
   const latestCurve = useMemo(() => (paper?.equityCurve || []).slice(-8), [paper?.equityCurve]);
+  const qualitySummary = dashboard?.quality?.summary || {};
+  const qualityScore = asNumber(qualitySummary.overall_score);
+  const qualityStatus = typeof qualitySummary.status === "string" ? qualitySummary.status : "--";
+  const weakStockCount = asNumber(qualitySummary.weak_stock_count) ?? 0;
+  const forwardSummary = dashboard?.forwardValidation || {};
+  const forwardPredictionCount = asNumber(forwardSummary.prediction_count) ?? 0;
+  const forwardTodayCount = asNumber(forwardSummary.today_prediction_count) ?? 0;
 
   useEffect(() => {
     if (!candidates.length) {
@@ -337,10 +346,12 @@ const FundamentalFirstPage: React.FC = () => {
 
       {error ? <Card padding="sm" className="mb-4 border-danger/30 text-danger">{error}</Card> : null}
 
-      <div className="grid flex-shrink-0 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <div className="grid flex-shrink-0 gap-4 md:grid-cols-2 xl:grid-cols-6">
         <StatTile label="闸门股票" value={dashboard?.summary.total ?? 0} hint={(dashboard?.date || "--") + " 最新生成"} icon={ShieldCheck} />
         <StatTile label="交易候选" value={dashboard?.summary.buyReady ?? 0} hint="全部闸门通过才会进入" icon={Target} />
         <StatTile label="观察池" value={dashboard?.summary.watch ?? 0} hint={(dashboard?.summary.pendingResearch ?? 0) + " 只尚未深研"} icon={ClipboardList} />
+        <StatTile label="数据质量" value={qualityStatus + "/" + (qualityScore === null ? "--" : qualityScore.toFixed(0))} hint={weakStockCount + " 只数据偏弱"} icon={Database} />
+        <StatTile label="前向验证" value={forwardPredictionCount} hint={"今日保存 " + forwardTodayCount + " 条判断"} icon={LineChart} />
         <StatTile label="模拟盘权益" value={formatMoney(equity)} hint={"累计收益 " + totalReturn.toFixed(2) + "%"} icon={WalletCards} />
       </div>
 
@@ -390,10 +401,12 @@ const FundamentalFirstPage: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-5">
+                <div className="mt-5 grid gap-3 md:grid-cols-3 xl:grid-cols-7">
                   <ScoreCell label="公司质量" value={selected.company_quality_score} tone="success" />
+                  <ScoreCell label="财务三表" value={selected.financial_statement_score} tone="success" />
                   <ScoreCell label="产业逻辑" value={selected.industry_logic_score} tone="info" />
                   <ScoreCell label="证据质量" value={selected.evidence_quality_score} />
+                  <ScoreCell label="数据质量" value={selected.data_quality_score} tone={selected.data_quality_status === "BAD" ? "danger" : "info"} />
                   <ScoreCell label="估值预期差" value={selected.value_gap_score} tone="warning" />
                   <ScoreCell label="交易机会" value={selected.trade_score ?? selected.opportunity_score} />
                 </div>
@@ -407,7 +420,7 @@ const FundamentalFirstPage: React.FC = () => {
                   <div className="rounded-xl border border-border/50 bg-surface/25 p-4">
                     <div className="label-uppercase">Next Step</div>
                     <div className="mt-2 text-sm leading-6 text-secondary-text">{selected.research_next_step || selected.final_action || "等待下一轮证据、估值或交易结构确认"}</div>
-                    <div className="mt-3 text-xs leading-5 text-muted-text">{selected.warnings || selected.market_reason || "暂无额外风险提示"}</div>
+                    <div className="mt-3 text-xs leading-5 text-muted-text">{[selected.financial_statement_warnings, selected.data_quality_warnings, selected.warnings, selected.market_reason].filter(Boolean).join("；") || "暂无额外风险提示"}</div>
                   </div>
                 </div>
               </Card>

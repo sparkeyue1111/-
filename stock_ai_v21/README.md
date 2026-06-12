@@ -27,3 +27,9 @@ bash scripts/star_assistant_v21/run_stock_ai_v1_pipeline.sh
 ```
 
 单独运行某一层时，也优先用 `scripts/star_assistant_v21/` 下的 shell 包装脚本。
+
+## V2.2 新增系统
+
+- `financial_statements_system/`：用利润表、资产负债表、现金流量表补强基本面质量判断。
+- `data_quality_system/`：检查 AKShare 可用性、关键 CSV 字段、缺失率和股票级数据质量。
+- `forward_validation_system/`：每日保存系统当时判断，并在 30/60/90 天后回填真实收益验证评分有效性。

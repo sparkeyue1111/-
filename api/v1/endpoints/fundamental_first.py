@@ -86,6 +86,8 @@ def get_fundamental_first_dashboard() -> dict[str, Any]:
         candidates = read_csv(candidate_dir / "current_fundamental_first_candidates.csv")
     opportunities = [row for row in candidates if row.get("decision") == "BUY_READY"]
     watch = [row for row in candidates if row.get("decision") == "WATCH"]
+    quality_dir = DATA_DIR / "data_quality"
+    forward_dir = DATA_DIR / "forward_validation"
     state = read_json(portfolio_dir / "paper_portfolio_state.json", {})
     holdings = read_csv(portfolio_dir / "current_paper_holdings.csv")
     equity_curve = read_csv(portfolio_dir / "paper_equity_curve.csv")
@@ -96,9 +98,16 @@ def get_fundamental_first_dashboard() -> dict[str, Any]:
         date = str(candidates[0].get("date") or "")
     if not date and equity_curve:
         date = str(equity_curve[-1].get("date") or "")
+    quality_summary = read_json(quality_dir / "current_data_quality.json", {})
+    quality_checks = read_csv(quality_dir / "current_data_quality_checks.csv")
+    quality_stocks = read_csv(quality_dir / "current_data_quality_stock.csv", limit=80)
+    forward_validation = read_json(forward_dir / "current_forward_validation.json", {})
     latest_reports = {
         "fundamentalFirst": str(latest_csv(REPORT_DIR, "fundamental_first_*.md") or ""),
         "paperPortfolio": str(latest_csv(REPORT_DIR, "paper_portfolio_*.md") or ""),
+        "dataQuality": str(latest_csv(REPORT_DIR, "data_quality_*.md") or ""),
+        "financialStatements": str(latest_csv(REPORT_DIR, "financial_statements_*.md") or ""),
+        "forwardValidation": str(latest_csv(REPORT_DIR, "forward_validation_*.md") or ""),
     }
     return {
         "date": date,
@@ -113,5 +122,11 @@ def get_fundamental_first_dashboard() -> dict[str, Any]:
             "trades": trades,
             "latestTradeFile": latest_trade_path.name if latest_trade_path else "",
         },
+        "quality": {
+            "summary": quality_summary if isinstance(quality_summary, dict) else {},
+            "checks": quality_checks,
+            "stocks": quality_stocks,
+        },
+        "forwardValidation": forward_validation if isinstance(forward_validation, dict) else {},
         "reports": latest_reports,
     }

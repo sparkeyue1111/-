@@ -15,6 +15,13 @@ export interface FundamentalCandidate {
   learning_score?: number;
   pool_fundamental_score?: number;
   financial_quality_score?: number;
+  base_financial_quality_score?: number;
+  financial_statement_score?: number | string;
+  statement_coverage_score?: number | string;
+  financial_statement_warnings?: string;
+  data_quality_score?: number | string;
+  data_quality_status?: string;
+  data_quality_warnings?: string;
   available_metric_count?: number;
   evidence_quality_score?: number;
   final_research_score?: number;
@@ -96,6 +103,43 @@ export interface EquityPoint {
   positions?: number;
 }
 
+export interface DataQualitySummary {
+  status?: string;
+  overall_score?: number;
+  critical_block?: boolean;
+  weak_stock_count?: number;
+  warnings?: string[];
+  generated_at?: string;
+}
+
+export interface DataQualityCheck {
+  check?: string;
+  status?: string;
+  score?: number;
+  row_count?: number;
+  missing_rate?: number;
+  warnings?: string;
+}
+
+export interface ForwardValidationGroup {
+  count?: number;
+  matured_count?: number;
+  avg_ret30?: number;
+  avg_ret60?: number;
+  avg_ret90?: number;
+  hit_rate30?: number;
+  hit_rate60?: number;
+  hit_rate90?: number;
+}
+
+export interface ForwardValidationSummary {
+  prediction_count?: number;
+  today_prediction_count?: number;
+  groups?: Record<string, ForwardValidationGroup>;
+  errors?: string[];
+  generated_at?: string;
+}
+
 export interface FundamentalFirstDashboard {
   date: string;
   summary: FundamentalSummary;
@@ -109,5 +153,10 @@ export interface FundamentalFirstDashboard {
     trades: PaperTrade[];
     latestTradeFile?: string;
   };
+  quality?: {
+    summary?: DataQualitySummary;
+    checks?: DataQualityCheck[];
+  };
+  forwardValidation?: ForwardValidationSummary;
   reports: Record<string, string>;
 }
