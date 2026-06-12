@@ -22,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--output-dir", default="/app/data/fundamental_pool")
     parser.add_argument("--report-dir", default="/app/reports")
     parser.add_argument("--pool-size", type=int, default=int(os.environ.get("POOL_SIZE", "50")))
-    parser.add_argument("--analyze-count", type=int, default=int(os.environ.get("ANALYZE_COUNT", "5")))
+    parser.add_argument("--analyze-count", type=int, default=int(os.environ.get("ANALYZE_COUNT", "10")))
     parser.add_argument("--probe-count", type=int, default=int(os.environ.get("FUNDAMENTAL_PROBE_COUNT", "120")))
     parser.add_argument("--min-amount", type=float, default=float(os.environ.get("MIN_AMOUNT", "100000000")))
     parser.add_argument("--min-price", type=float, default=float(os.environ.get("MIN_PRICE", "3")))

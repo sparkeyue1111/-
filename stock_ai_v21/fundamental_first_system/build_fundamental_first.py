@@ -25,6 +25,11 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--date', default=datetime.now().strftime('%Y%m%d'))
     parser.add_argument('--max-candidates', type=int, default=50)
     parser.add_argument('--entry-threshold', type=float, default=76.0)
+    parser.add_argument('--candidate-threshold', type=float, default=70.0)
+    parser.add_argument('--research-queue-threshold', type=float, default=70.0)
+    parser.add_argument('--watch-threshold', type=float, default=58.0)
+    parser.add_argument('--soft-evidence-score', type=float, default=45.0)
+    parser.add_argument('--soft-expectation-gap-score', type=float, default=50.0)
     parser.add_argument('--min-financial-score', type=float, default=65.0)
     parser.add_argument('--min-evidence-score', type=float, default=55.0)
     parser.add_argument('--min-expectation-gap-score', type=float, default=55.0)
@@ -258,6 +263,17 @@ def classify(row: pd.Series, market_state: dict[str, Any], data_quality_state: d
     trade_gate = trade_score >= args.entry_threshold
     market_ok = bool(market_state.get('market_ok'))
     red_flag = has_red_flag(warnings)
+
+    valuation_hard_block = valuation_level in {'估值极高'} or expectation_gap in {'低质量+高估值风险'}
+    soft_evidence_gate = has_deep_research and (evidence_score >= args.soft_evidence_score or research_score >= 50)
+    soft_valuation_gate = expectation_score >= args.soft_expectation_gap_score and not valuation_hard_block
+    trade_candidate_gate = trade_score >= args.candidate_threshold
+    research_queue_gate = (
+        trade_score >= args.research_queue_threshold
+        or company_score >= 88
+        or total_score >= 52
+    )
+
     failed = []
     if not data_quality_gate:
         failed.append('数据质量闸门未过')
@@ -275,25 +291,57 @@ def classify(row: pd.Series, market_state: dict[str, Any], data_quality_state: d
         failed.append('市场风控未过')
     if red_flag:
         failed.append('存在硬红旗或最终层降级')
+
     if global_critical_block:
         decision = 'REJECT'
         action = '关键数据源质量不足，暂停升级交易候选'
     elif not has_deep_research and fundamental_gate and statement_gate and data_quality_gate:
-        decision = 'PENDING_RESEARCH'
-        action = '待深度研究，不做否定判断'
-        failed = ['尚未进入本轮公告/证据/估值深度研究']
+        if trade_candidate_gate and market_ok and company_score >= 88:
+            decision = 'TRADE_CANDIDATE'
+            action = '基本面和交易结构进入候选样本，需优先补公告证据、估值和AI报告'
+            failed = ['尚未覆盖公告/证据/估值深研；交易候选为研究样本，不是严格买入信号']
+        elif research_queue_gate:
+            decision = 'RESEARCH_QUEUE'
+            action = '基本面较好但尚未深研，优先补公告证据、估值和AI报告'
+            failed = ['尚未覆盖公告/证据/估值深研，不代表研究失败']
+        else:
+            decision = 'FUNDAMENTAL_POOL'
+            action = '保留在基本面池，等待轮动进入深度研究'
+            failed = ['尚未覆盖公告/证据/估值深研，不代表研究失败']
     elif not red_flag and data_quality_gate and statement_gate and fundamental_gate and evidence_gate and valuation_gate and trade_gate and market_ok:
         decision = 'BUY_READY'
-        action = '进入现实模拟盘候选'
-    elif not red_flag and data_quality_gate and statement_gate and fundamental_gate and evidence_gate and total_score >= 62:
+        action = '严格闸门全部通过，进入现实模拟盘买入候选'
+    elif (
+        not red_flag
+        and data_quality_gate
+        and statement_gate
+        and fundamental_gate
+        and market_ok
+        and soft_evidence_gate
+        and soft_valuation_gate
+        and trade_candidate_gate
+    ):
+        decision = 'TRADE_CANDIDATE'
+        action = '进入交易机会层观察样本，尚未达到严格买入闸门'
+    elif (
+        not red_flag
+        and data_quality_gate
+        and statement_gate
+        and fundamental_gate
+        and has_deep_research
+        and total_score >= args.watch_threshold
+    ):
         decision = 'WATCH'
-        action = '保留观察，等待估值或交易机会'
+        action = '已深研但估值、证据或交易条件未完全成熟，继续观察'
     elif not red_flag and fundamental_gate and (not statement_gate or not data_quality_gate):
-        decision = 'PENDING_RESEARCH'
+        decision = 'RESEARCH_QUEUE'
         action = '基本面有线索，但需补齐数据质量或三表验证'
+    elif not has_deep_research and not red_flag and company_score >= 70:
+        decision = 'FUNDAMENTAL_POOL'
+        action = '保留在基本面池，暂不升级深研'
     else:
         decision = 'REJECT'
-        action = '不进入交易机会层'
+        action = '已研究或硬条件不足，不进入交易机会层'
     price = coalesce_float(row.get('price'), plan.get('snapshot_price'), trade.get('close'), default=math.nan)
     stop = coalesce_float(plan.get('risk_stop'), price * 0.88 if not math.isnan(price) else math.nan, default=math.nan)
     return {
@@ -346,7 +394,13 @@ def classify(row: pd.Series, market_state: dict[str, Any], data_quality_state: d
 
 def next_step(decision: str, failed: list[str], expectation_gap: str, valuation_level: str) -> str:
     if decision == 'BUY_READY':
-        return '进入现实模拟盘，后续跟踪30/60/90天表现、公告证据和财务共振。'
+        return '进入严格现实模拟盘，后续跟踪30/60/90天表现、公告证据和财务共振。'
+    if decision == 'TRADE_CANDIDATE':
+        return '进入交易机会层样本；继续确认估值、证据和下一交易日结构，暂不按严格盘买入。'
+    if decision == 'RESEARCH_QUEUE':
+        return '优先补公告PDF、客户认证、订单、问询函、估值和AI单票报告。'
+    if decision == 'FUNDAMENTAL_POOL':
+        return '保留在基本面池，等待轮动深研或交易分/公司质量继续抬升。'
     if '数据质量闸门未过' in failed:
         return '先修复数据源、字段缺失或股票级数据异常，不允许升级交易候选。'
     if '财务三表增强闸门未过' in failed:
@@ -412,7 +466,7 @@ def write_report(path: Path, rows: list[dict[str, Any]], market_state: dict[str,
     lines = [
         f'# 基本面优先闸门 V2.2 - {datetime.now():%Y-%m-%d}',
         '',
-        '定位：先过数据质量、财务三表、财务质量、产业证据、估值预期差，再看V2.1交易机会。只有全部通过才进入现实模拟盘候选。',
+        '定位：先过数据质量、财务三表、财务质量、产业证据、估值预期差，再看V2.1交易机会。BUY_READY 才进入严格模拟盘；TRADE_CANDIDATE 用于交易机会层观察；RESEARCH_QUEUE 表示优先补深研。',
         '',
         "- 市场风控：" + safe_text(market_state.get("market_reason")),
         '',
@@ -441,7 +495,13 @@ def main() -> int:
     for path in [output_dir / f'fundamental_first_candidates_{date_key}.json', output_dir / 'current_fundamental_first_candidates.json']:
         path.write_text(json.dumps(rows, ensure_ascii=False, indent=2) + '\n', encoding='utf-8')
     write_report(report_dir / f'fundamental_first_{date_key}.md', rows, market_state, messages)
-    print(json.dumps({'ok': True, 'rows': len(rows), 'buy_ready': sum(1 for row in rows if row['decision'] == 'BUY_READY')}, ensure_ascii=False, indent=2))
+    print(json.dumps({
+        'ok': True,
+        'rows': len(rows),
+        'buy_ready': sum(1 for row in rows if row['decision'] == 'BUY_READY'),
+        'trade_candidate': sum(1 for row in rows if row['decision'] == 'TRADE_CANDIDATE'),
+        'research_queue': sum(1 for row in rows if row['decision'] == 'RESEARCH_QUEUE'),
+    }, ensure_ascii=False, indent=2))
     return 0
 
 

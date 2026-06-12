@@ -206,7 +206,7 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], list[dict[str, Any]]]
                 trades_today.append(trade)
                 held_codes.add(code)
                 continue
-        elif decision in {'WATCH', 'PENDING_RESEARCH'} and trade_score >= args.hold_threshold:
+        elif decision in {'WATCH', 'PENDING_RESEARCH', 'RESEARCH_QUEUE', 'FUNDAMENTAL_POOL', 'TRADE_CANDIDATE'} and trade_score >= args.hold_threshold:
             remaining_pending.append(order)
     state['pending_orders'] = remaining_pending
     pending_codes = {normalize_code(order.get('code')) for order in state.get('pending_orders', [])}

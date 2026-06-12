@@ -1,4 +1,4 @@
-export type FundamentalDecision = "BUY_READY" | "WATCH" | "REJECT" | "PENDING_RESEARCH" | string;
+export type FundamentalDecision = "BUY_READY" | "TRADE_CANDIDATE" | "WATCH" | "RESEARCH_QUEUE" | "FUNDAMENTAL_POOL" | "REJECT" | "PENDING_RESEARCH" | string;
 
 export interface FundamentalCandidate {
   date?: string;
@@ -52,8 +52,12 @@ export interface FundamentalSummary {
   watch: number;
   reject: number;
   pendingResearch?: number;
+  tradeCandidate?: number;
+  researchQueue?: number;
+  fundamentalPool?: number;
   opportunityCount: number;
   watchCount: number;
+  researchQueueCount?: number;
 }
 
 export interface PaperState {

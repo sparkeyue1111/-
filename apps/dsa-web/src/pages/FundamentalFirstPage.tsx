@@ -25,7 +25,7 @@ import type { FundamentalCandidate, FundamentalFirstDashboard, PaperHolding, Pap
 import { cn } from "../utils/cn";
 
 type Tone = "default" | "success" | "warning" | "danger" | "info" | "history";
-type CandidateTab = "all" | "BUY_READY" | "WATCH" | "PENDING_RESEARCH" | "REJECT";
+type CandidateTab = "all" | "BUY_READY" | "TRADE_CANDIDATE" | "WATCH" | "RESEARCH_QUEUE" | "FUNDAMENTAL_POOL" | "REJECT";
 
 function asNumber(value: unknown): number | null {
   if (value === null || value === undefined || value === "") return null;
@@ -52,17 +52,21 @@ function formatPct(value: unknown): string {
 }
 
 function decisionMeta(decision?: string): { label: string; tone: Tone; description: string } {
-  if (decision === "BUY_READY") return { label: "交易候选", tone: "success", description: "基本面、证据、估值、交易和市场风控同时通过" };
-  if (decision === "WATCH") return { label: "继续观察", tone: "warning", description: "基本面较好，但估值、买点或证据强度尚未完全满足" };
-  if (decision === "REJECT") return { label: "未通过", tone: "danger", description: "已研究后不满足当前系统闸门" };
-  if (decision === "PENDING_RESEARCH") return { label: "待研究", tone: "info", description: "通过初筛但尚未进入本轮公告、证据和估值深度研究" };
+  if (decision === "BUY_READY") return { label: "严格买入", tone: "success", description: "全部严格闸门通过，下一交易日仍满足才进入严格模拟盘" };
+  if (decision === "TRADE_CANDIDATE") return { label: "交易候选", tone: "info", description: "进入交易机会层样本，但尚未达到严格买入闸门" };
+  if (decision === "WATCH") return { label: "继续观察", tone: "warning", description: "已深研但估值、买点或证据强度尚未完全满足" };
+  if (decision === "RESEARCH_QUEUE" || decision === "PENDING_RESEARCH") return { label: "深研队列", tone: "info", description: "基本面较好但尚未完成本轮公告、证据、估值和AI深研" };
+  if (decision === "FUNDAMENTAL_POOL") return { label: "基本面池", tone: "default", description: "保留在基本面池，等待轮动进入深度研究" };
+  if (decision === "REJECT") return { label: "未通过", tone: "danger", description: "已研究后不满足当前系统闸门或存在硬条件不足" };
   return { label: decision || "未知", tone: "default", description: "暂无状态说明" };
 }
 
 function tabLabel(tab: CandidateTab): string {
-  if (tab === "BUY_READY") return "交易候选";
+  if (tab === "BUY_READY") return "严格买入";
+  if (tab === "TRADE_CANDIDATE") return "交易候选";
   if (tab === "WATCH") return "观察";
-  if (tab === "PENDING_RESEARCH") return "待研究";
+  if (tab === "RESEARCH_QUEUE") return "深研队列";
+  if (tab === "FUNDAMENTAL_POOL") return "基本面池";
   if (tab === "REJECT") return "未通过";
   return "全部";
 }
@@ -199,6 +203,10 @@ const FundamentalFirstPage: React.FC = () => {
   const candidates = dashboard?.candidates || [];
   const opportunities = dashboard?.opportunities || [];
   const watch = dashboard?.watch || [];
+  const strictBuyReady = dashboard?.summary.buyReady ?? 0;
+  const tradeCandidate = dashboard?.summary.tradeCandidate ?? 0;
+  const researchQueue = dashboard?.summary.researchQueue ?? dashboard?.summary.pendingResearch ?? 0;
+  const fundamentalPool = dashboard?.summary.fundamentalPool ?? 0;
   const paper = dashboard?.paper;
   const state = paper?.state || {};
   const equity = asNumber(state.equity) ?? asNumber(state.initial_capital) ?? asNumber(state.initialCapital) ?? 0;
@@ -285,7 +293,7 @@ const FundamentalFirstPage: React.FC = () => {
     navigate(`/chat?${params.toString()}`);
   }, [latestReport?.meta.id, navigate, selected]);
 
-  const tabs: CandidateTab[] = ["all", "BUY_READY", "WATCH", "PENDING_RESEARCH", "REJECT"];
+  const tabs: CandidateTab[] = ["all", "BUY_READY", "TRADE_CANDIDATE", "WATCH", "RESEARCH_QUEUE", "FUNDAMENTAL_POOL", "REJECT"];
 
   return (
     <div className="flex h-[calc(100vh-5rem)] min-h-0 flex-col overflow-hidden pb-2 sm:h-[calc(100vh-5.5rem)] lg:h-[calc(100vh-2rem)]">
@@ -348,8 +356,8 @@ const FundamentalFirstPage: React.FC = () => {
 
       <div className="grid flex-shrink-0 gap-4 md:grid-cols-2 xl:grid-cols-6">
         <StatTile label="闸门股票" value={dashboard?.summary.total ?? 0} hint={(dashboard?.date || "--") + " 最新生成"} icon={ShieldCheck} />
-        <StatTile label="交易候选" value={dashboard?.summary.buyReady ?? 0} hint="全部闸门通过才会进入" icon={Target} />
-        <StatTile label="观察池" value={dashboard?.summary.watch ?? 0} hint={(dashboard?.summary.pendingResearch ?? 0) + " 只尚未深研"} icon={ClipboardList} />
+        <StatTile label="交易机会层" value={strictBuyReady + tradeCandidate} hint={"严格买入 " + strictBuyReady + " / 候选 " + tradeCandidate} icon={Target} />
+        <StatTile label="研究队列" value={researchQueue + fundamentalPool} hint={"深研 " + researchQueue + " / 基本面池 " + fundamentalPool} icon={ClipboardList} />
         <StatTile label="数据质量" value={qualityStatus + "/" + (qualityScore === null ? "--" : qualityScore.toFixed(0))} hint={weakStockCount + " 只数据偏弱"} icon={Database} />
         <StatTile label="前向验证" value={forwardPredictionCount} hint={"今日保存 " + forwardTodayCount + " 条判断"} icon={LineChart} />
         <StatTile label="模拟盘权益" value={formatMoney(equity)} hint={"累计收益 " + totalReturn.toFixed(2) + "%"} icon={WalletCards} />

@@ -60,20 +60,42 @@ def latest_csv(directory: Path, pattern: str) -> Path | None:
 
 
 def summary_from_candidates(candidates: list[dict[str, Any]]) -> dict[str, Any]:
-    counts = {"BUY_READY": 0, "WATCH": 0, "REJECT": 0, "PENDING_RESEARCH": 0}
+    counts = {
+        "BUY_READY": 0,
+        "TRADE_CANDIDATE": 0,
+        "WATCH": 0,
+        "RESEARCH_QUEUE": 0,
+        "FUNDAMENTAL_POOL": 0,
+        "REJECT": 0,
+        "PENDING_RESEARCH": 0,
+    }
     for row in candidates:
         decision = str(row.get("decision") or "")
         counts[decision] = counts.get(decision, 0) + 1
-    opportunity = [row for row in candidates if row.get("decision") == "BUY_READY"]
-    watch = [row for row in candidates if row.get("decision") == "WATCH"]
+    opportunity = [
+        row for row in candidates
+        if row.get("decision") in {"BUY_READY", "TRADE_CANDIDATE"}
+    ]
+    watch = [
+        row for row in candidates
+        if row.get("decision") in {"WATCH", "RESEARCH_QUEUE", "FUNDAMENTAL_POOL", "PENDING_RESEARCH"}
+    ]
+    research_queue = [
+        row for row in candidates
+        if row.get("decision") in {"RESEARCH_QUEUE", "PENDING_RESEARCH"}
+    ]
     return {
         "total": len(candidates),
         "buyReady": counts.get("BUY_READY", 0),
+        "tradeCandidate": counts.get("TRADE_CANDIDATE", 0),
         "watch": counts.get("WATCH", 0),
+        "researchQueue": counts.get("RESEARCH_QUEUE", 0) + counts.get("PENDING_RESEARCH", 0),
+        "fundamentalPool": counts.get("FUNDAMENTAL_POOL", 0),
         "reject": counts.get("REJECT", 0),
         "pendingResearch": counts.get("PENDING_RESEARCH", 0),
         "opportunityCount": len(opportunity),
         "watchCount": len(watch),
+        "researchQueueCount": len(research_queue),
     }
 
 
@@ -84,8 +106,8 @@ def get_fundamental_first_dashboard() -> dict[str, Any]:
     candidates = read_json(candidate_dir / "current_fundamental_first_candidates.json", None)
     if not isinstance(candidates, list):
         candidates = read_csv(candidate_dir / "current_fundamental_first_candidates.csv")
-    opportunities = [row for row in candidates if row.get("decision") == "BUY_READY"]
-    watch = [row for row in candidates if row.get("decision") == "WATCH"]
+    opportunities = [row for row in candidates if row.get("decision") in {"BUY_READY", "TRADE_CANDIDATE"}]
+    watch = [row for row in candidates if row.get("decision") in {"WATCH", "RESEARCH_QUEUE", "FUNDAMENTAL_POOL", "PENDING_RESEARCH"}]
     quality_dir = DATA_DIR / "data_quality"
     forward_dir = DATA_DIR / "forward_validation"
     state = read_json(portfolio_dir / "paper_portfolio_state.json", {})

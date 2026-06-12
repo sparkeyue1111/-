@@ -4,7 +4,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="${PROJECT_DIR:-$(cd "$SCRIPT_DIR/../.." && pwd)}"
 CONTAINER="${CONTAINER:-stock-server}"
-POOL_LIMIT="${POOL_LIMIT:-5}"
+POOL_LIMIT="${POOL_LIMIT:-15}"
 LOOKBACK_DAYS="${LOOKBACK_DAYS:-730}"
 SOURCE_TIMEOUT="${SOURCE_TIMEOUT:-35}"
 LOG_DIR="${LOG_DIR:-$PROJECT_DIR/logs}"

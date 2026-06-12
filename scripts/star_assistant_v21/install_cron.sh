@@ -14,7 +14,8 @@ cat >> "$TMP_CRON" <<CRON
 # 星星分析助手 v2.2：基本面优先策略流水线
 5 20 * * 1-5 PROJECT_DIR=$PROJECT_DIR $PROJECT_DIR/scripts/star_assistant_v21/run_fundamental_pool.sh >> $LOG_DIR/fundamental_pool_cron.log 2>&1
 15 20 * * 1-5 PROJECT_DIR=$PROJECT_DIR $PROJECT_DIR/scripts/star_assistant_v21/build_financial_statements.sh >> $LOG_DIR/financial_statements_cron.log 2>&1
-5 22 * * 1-5 PROJECT_DIR=$PROJECT_DIR $PROJECT_DIR/scripts/star_assistant_v21/run_evidence_hub.sh >> $LOG_DIR/evidence_hub_cron.log 2>&1
+45 20 * * 1-5 PROJECT_DIR=$PROJECT_DIR $PROJECT_DIR/scripts/star_assistant_v21/run_daily_analysis_from_pool.sh >> $LOG_DIR/daily_analysis_cron.log 2>&1
+5 22 * * 1-5 PROJECT_DIR=$PROJECT_DIR POOL_LIMIT=15 $PROJECT_DIR/scripts/star_assistant_v21/run_evidence_hub.sh >> $LOG_DIR/evidence_hub_cron.log 2>&1
 10 22 * * 1-5 PROJECT_DIR=$PROJECT_DIR $PROJECT_DIR/scripts/star_assistant_v21/build_valuation_layer.sh >> $LOG_DIR/valuation_layer_cron.log 2>&1
 15 22 * * 1-5 PROJECT_DIR=$PROJECT_DIR $PROJECT_DIR/scripts/star_assistant_v21/build_final_layers.sh >> $LOG_DIR/final_layers_cron.log 2>&1
 18 22 * * 1-5 PROJECT_DIR=$PROJECT_DIR $PROJECT_DIR/scripts/star_assistant_v21/build_data_quality.sh >> $LOG_DIR/data_quality_cron.log 2>&1

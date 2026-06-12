@@ -258,15 +258,17 @@ fundamental_first_score = company_score     * 0.30
 输出状态：
 
 - `REJECT`：未通过，不进入交易机会层。
-- `PENDING_RESEARCH`：基本面过关但还没有深度证据，不否定，但不能买。
-- `WATCH`：基本面和证据较好，但估值或交易机会未成熟。
-- `BUY_READY`：所有闸门通过，进入现实模拟盘候选。
+- `FUNDAMENTAL_POOL`：基本面池保留，尚未进入深研。
+- `RESEARCH_QUEUE`：基本面较好，优先补公告/PDF/估值/AI 深研。
+- `WATCH`：已深研但估值、证据或交易机会未成熟。
+- `TRADE_CANDIDATE`：进入交易机会层样本，但尚未达到严格买入闸门。
+- `BUY_READY`：所有严格闸门通过，进入现实模拟盘买入候选。
 
 前端对应：
 
 - 基本面闸门筛选：显示 50 只策略池股票以及各层得分。
-- 交易机会层：只显示 `BUY_READY`。
-- 观察池：显示 `WATCH` 和 `PENDING_RESEARCH`。
+- 交易机会层：显示 `BUY_READY` 和 `TRADE_CANDIDATE`；只有 `BUY_READY` 会进入严格模拟盘买入候选。
+- 观察/研究层：显示 `WATCH`、`RESEARCH_QUEUE` 和 `FUNDAMENTAL_POOL`。
 - 模拟盘权益：显示现实模拟盘资金曲线、持仓和交易记录。
 
 ## 11. 交易分和历史回测 v2
@@ -470,8 +472,8 @@ BACKTEST_YEARS=10 BACKTEST_V2_WORKERS=4 bash scripts/star_assistant_v21/build_ma
 
 建议：
 
-- 默认 `ANALYZE_COUNT=10`。
-- 如果市场强、机会多，可以临时提高到 15。
+- 默认 `ANALYZE_COUNT=10`，证据层默认覆盖前 15 只。
+- 如果市场强、机会多，可以临时把 AI 分析提高到 15、证据覆盖提高到 20。
 - 如果只想省钱，可以降到 5。
 - 持仓票和 `BUY_READY` 股票应持续跟踪；普通 `REJECT` 股票不必每天调用 AI。
 
@@ -518,3 +520,20 @@ bash scripts/star_assistant_v21/build_forward_validation.sh
 ```
 
 完整流水线已升级为 12 步：学习池、财务三表、AI 单票分析、证据层、估值层、最终层、数据质量、基本面闸门、模拟盘、持仓复盘、策略验证、前向验证。
+
+
+## V2.3 分层优化：先积累样本，再校准阈值
+
+为避免“严格闸门过早卡死、1-2 个月没有任何可验证样本”，系统新增两层中间状态：
+
+- `RESEARCH_QUEUE`：基本面、三表和数据质量较好，但尚未完成公告/PDF/估值/AI 深研。它不是失败，而是优先研究名单。
+- `TRADE_CANDIDATE`：已经进入交易机会层样本，但估值、证据或最终研究分仍未达到 `BUY_READY` 的严格买入标准。
+
+严格规则没有放松：现实模拟盘买入仍只接受 `BUY_READY`，并且仍然要求下一次运行时信号继续存在，避免未来函数。
+
+运行 1 个月后重点复盘：
+
+- `RESEARCH_QUEUE -> WATCH / TRADE_CANDIDATE` 的转化率。
+- `TRADE_CANDIDATE` 后 30 天、60 天收益是否优于普通策略池。
+- `BUY_READY` 是否过少；若 1 个月仍为 0，再根据前向验证数据调整证据分、估值分或交易分阈值。
+- 哪些闸门最常卡住：证据覆盖不足、估值偏高、交易分不足，还是 AI 报告未生成。
