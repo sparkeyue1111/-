@@ -1,0 +1,16 @@
+services:
+  server:
+    environment:
+      - ENV_FILE=/app/data/app.env
+    ports: !reset []
+    networks:
+      - default
+      - npm_proxy
+  analyzer:
+    environment:
+      - ENV_FILE=/app/data/app.env
+
+networks:
+  npm_proxy:
+    external: true
+    name: odoo_default

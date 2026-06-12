@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { BarChart3, Bell, BriefcaseBusiness, Home, LogOut, MessageSquareQuote, Search, Settings2 } from 'lucide-react';
+import { BarChart3, Bell, BriefcaseBusiness, Home, LogOut, MessageSquareQuote, Search, Settings2, ShieldCheck } from 'lucide-react';
 import { NavLink } from 'react-router-dom';
 import { ALPHASIFT_CONFIG_CHANGED_EVENT, SYSTEM_CONFIG_CHANGED_EVENT, alphasiftApi } from '../../api/alphasift';
 import { useAuth } from '../../contexts/AuthContext';
@@ -28,7 +28,8 @@ type NavItem = {
 };
 
 const NAV_ITEMS: NavItem[] = [
-  { key: 'home', labelKey: 'layout.nav.home', to: '/', icon: Home, exact: true },
+  { key: 'home', labelKey: 'layout.nav.fundamentalFirst', to: '/', icon: ShieldCheck, exact: true },
+  { key: 'analysis', labelKey: 'layout.nav.analysis', to: '/analysis', icon: Home },
   { key: 'chat', labelKey: 'layout.nav.chat', to: '/chat', icon: MessageSquareQuote, badge: 'completion' },
   { key: 'screening', labelKey: 'layout.nav.screening', to: '/screening', icon: Search },
   { key: 'portfolio', labelKey: 'layout.nav.portfolio', to: '/portfolio', icon: BriefcaseBusiness },
@@ -107,7 +108,7 @@ export const SidebarNav: React.FC<SidebarNavProps> = ({ collapsed = false, onNav
           <BarChart3 className={cn(isRail ? 'h-[19px] w-[19px]' : 'h-5 w-5')} />
         </div>
         {!collapsed ? (
-          <p className={cn('min-w-0 truncate font-semibold text-foreground', isRail ? 'text-[0.95rem] leading-none' : 'text-sm')}>DSA</p>
+          <p className={cn('min-w-0 font-semibold text-foreground', isRail ? 'text-[0.72rem] leading-tight' : 'text-[0.72rem] leading-tight')}>星星分析助手<br />v2.1版</p>
         ) : null}
       </div>
 

@@ -85,3 +85,13 @@ static/
 /apps/dsa-desktop/dist/
 /apps/dsa-desktop/node_modules/
 docs/specs/
+
+
+# 本地部署备份和临时文件
+*.bak
+*.bak.*
+*.bak-*
+docker/*.bak*
+docker/docker-compose.npm.yml.bak*
+mac_wheels*/
+longbridge_tokens/

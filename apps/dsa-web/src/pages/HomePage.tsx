@@ -1,7 +1,7 @@
 import type React from 'react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { BarChart3, Check, SlidersHorizontal } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useLocation, useNavigate } from 'react-router-dom';
 import { getParsedApiError, type ParsedApiError } from '../api/error';
 import { analysisApi } from '../api/analysis';
 import { historyApi } from '../api/history';
@@ -30,6 +30,7 @@ type MarketReviewNotice = {
 
 const HomePage: React.FC = () => {
   const navigate = useNavigate();
+  const location = useLocation();
   const { language: uiLanguage, t } = useUiLanguage();
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [isSubmittingMarketReview, setIsSubmittingMarketReview] = useState(false);
@@ -307,6 +308,16 @@ const HomePage: React.FC = () => {
       .map((check) => check.title);
     return requiredNeedsAction.slice(0, 3).join(uiLanguage === 'en' ? ', ' : '、');
   }, [setupStatus, uiLanguage]);
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const stock = params.get('stock');
+    if (!stock) {
+      return;
+    }
+    const name = params.get('name');
+    setQuery(name ? `${name} ${stock}` : stock);
+  }, [location.search, setQuery]);
 
   useDashboardLifecycle({
     loadInitialHistory,
