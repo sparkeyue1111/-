@@ -1,5 +1,5 @@
 import type React from "react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity,
   BarChart3,
@@ -72,17 +72,17 @@ function tabLabel(tab: CandidateTab): string {
 }
 
 const StatTile: React.FC<{ label: string; value: string | number; hint?: string; icon: React.ComponentType<{ className?: string }> }> = ({ label, value, hint, icon: Icon }) => (
-  <Card padding="sm" className="min-h-[108px]">
+  <Card padding="sm" className="min-h-[92px] sm:min-h-[108px]">
     <div className="flex items-start justify-between gap-3">
       <div>
         <div className="label-uppercase">{label}</div>
-        <div className="mt-3 text-2xl font-semibold text-foreground">{value}</div>
+        <div className="mt-2 text-xl font-semibold text-foreground sm:mt-3 sm:text-2xl">{value}</div>
       </div>
       <div className="rounded-xl border border-cyan/25 bg-cyan/10 p-2 text-cyan">
         <Icon className="h-4 w-4" />
       </div>
     </div>
-    {hint ? <div className="mt-3 text-xs leading-5 text-muted-text">{hint}</div> : null}
+    {hint ? <div className="mt-2 text-[11px] leading-4 text-muted-text sm:mt-3 sm:text-xs sm:leading-5">{hint}</div> : null}
   </Card>
 );
 
@@ -126,7 +126,7 @@ const CandidateListItem: React.FC<{
           <div className="truncate text-sm font-semibold text-foreground">{row.name}</div>
           <div className="mt-1 font-mono text-xs text-muted-text">{row.code}</div>
         </div>
-        <Badge variant={meta.tone}>{meta.label}</Badge>
+        <Badge variant={meta.tone} className="shrink-0">{meta.label}</Badge>
       </div>
       <div className="mt-3 grid grid-cols-3 gap-2 text-xs">
         <div>
@@ -182,6 +182,7 @@ const FundamentalFirstPage: React.FC = () => {
   const [latestReportLoading, setLatestReportLoading] = useState(false);
   const [latestReportError, setLatestReportError] = useState<string | null>(null);
   const [markdownDrawerOpen, setMarkdownDrawerOpen] = useState(false);
+  const detailRef = useRef<HTMLElement | null>(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -252,6 +253,15 @@ const FundamentalFirstPage: React.FC = () => {
     [paper?.holdings, selected?.code],
   );
 
+  const handleSelectCandidate = useCallback((code: string) => {
+    setSelectedCode(code);
+    if (typeof window !== "undefined" && window.innerWidth < 1024) {
+      window.setTimeout(() => {
+        detailRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+      }, 80);
+    }
+  }, []);
+
   useEffect(() => {
     let active = true;
     setLatestReport(null);
@@ -296,7 +306,7 @@ const FundamentalFirstPage: React.FC = () => {
   const tabs: CandidateTab[] = ["all", "BUY_READY", "TRADE_CANDIDATE", "WATCH", "RESEARCH_QUEUE", "FUNDAMENTAL_POOL", "REJECT"];
 
   return (
-    <div className="flex h-[calc(100vh-5rem)] min-h-0 flex-col overflow-hidden pb-2 sm:h-[calc(100vh-5.5rem)] lg:h-[calc(100vh-2rem)]">
+    <div className="flex min-h-[calc(100vh-5rem)] flex-col pb-6 lg:h-[calc(100vh-2rem)] lg:min-h-0 lg:overflow-hidden lg:pb-2">
       <header className="flex flex-shrink-0 flex-col gap-3 px-1 pb-4 sm:px-0">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -310,8 +320,8 @@ const FundamentalFirstPage: React.FC = () => {
           </Button>
         </div>
 
-        <div className="flex flex-col gap-2 xl:flex-row xl:items-center">
-          <div className="relative min-w-0 flex-1">
+        <div className="flex flex-col gap-2">
+          <div className="relative min-w-0">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-text" />
             <input
               value={filterText}
@@ -320,31 +330,35 @@ const FundamentalFirstPage: React.FC = () => {
               className="h-11 w-full rounded-xl border border-border/70 bg-card/70 pl-9 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-muted-text focus:border-cyan/55"
             />
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            {tabs.map((tab) => (
-              <button
-                key={tab}
-                type="button"
-                onClick={() => setActiveTab(tab)}
-                className={cn(
-                  "h-10 rounded-xl border px-3 text-sm transition-colors",
-                  activeTab === tab
-                    ? "border-cyan/60 bg-cyan/12 text-cyan"
-                    : "border-border/70 bg-card/60 text-secondary-text hover:bg-hover hover:text-foreground",
-                )}
-              >
-                {tabLabel(tab)}
-              </button>
-            ))}
-            <Button type="button" variant="home-action-ai" size="md" onClick={handleOpenAnalysis} disabled={!selected}>
+          <div className="-mx-1 overflow-x-auto px-1 pb-1">
+            <div className="flex min-w-max items-center gap-2">
+              {tabs.map((tab) => (
+                <button
+                  key={tab}
+                  type="button"
+                  onClick={() => setActiveTab(tab)}
+                  className={cn(
+                    "min-h-11 shrink-0 whitespace-nowrap rounded-xl border px-3 text-sm transition-colors",
+                    activeTab === tab
+                      ? "border-cyan/60 bg-cyan/12 text-cyan"
+                      : "border-border/70 bg-card/60 text-secondary-text hover:bg-hover hover:text-foreground",
+                  )}
+                >
+                  {tabLabel(tab)}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="grid grid-cols-3 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <Button type="button" variant="home-action-ai" size="md" className="w-full px-2 sm:w-auto sm:px-4" onClick={handleOpenAnalysis} disabled={!selected}>
               <TrendingUp className="h-4 w-4" />
               打开分析
             </Button>
-            <Button type="button" variant="home-action-ai" size="md" onClick={handleAskAi} disabled={!selected}>
+            <Button type="button" variant="home-action-ai" size="md" className="w-full px-2 sm:w-auto sm:px-4" onClick={handleAskAi} disabled={!selected}>
               <MessageSquareText className="h-4 w-4" />
               追问 AI
             </Button>
-            <Button type="button" variant="home-action-ai" size="md" onClick={() => setMarkdownDrawerOpen(true)} disabled={!latestReport?.meta.id}>
+            <Button type="button" variant="home-action-ai" size="md" className="w-full px-2 sm:w-auto sm:px-4" onClick={() => setMarkdownDrawerOpen(true)} disabled={!latestReport?.meta.id}>
               <FileText className="h-4 w-4" />
               完整报告
             </Button>
@@ -354,7 +368,7 @@ const FundamentalFirstPage: React.FC = () => {
 
       {error ? <Card padding="sm" className="mb-4 border-danger/30 text-danger">{error}</Card> : null}
 
-      <div className="grid flex-shrink-0 gap-4 md:grid-cols-2 xl:grid-cols-6">
+      <div className="grid flex-shrink-0 grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 xl:grid-cols-6">
         <StatTile label="闸门股票" value={dashboard?.summary.total ?? 0} hint={(dashboard?.date || "--") + " 最新生成"} icon={ShieldCheck} />
         <StatTile label="交易机会层" value={strictBuyReady + tradeCandidate} hint={"严格买入 " + strictBuyReady + " / 候选 " + tradeCandidate} icon={Target} />
         <StatTile label="研究队列" value={researchQueue + fundamentalPool} hint={"深研 " + researchQueue + " / 基本面池 " + fundamentalPool} icon={ClipboardList} />
@@ -363,8 +377,8 @@ const FundamentalFirstPage: React.FC = () => {
         <StatTile label="模拟盘权益" value={formatMoney(equity)} hint={"累计收益 " + totalReturn.toFixed(2) + "%"} icon={WalletCards} />
       </div>
 
-      <div className="mt-4 grid min-h-0 flex-1 gap-4 xl:grid-cols-[22rem_minmax(0,1fr)]">
-        <Card padding="sm" className="flex min-h-0 flex-col">
+      <div className="mt-4 grid gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[22rem_minmax(0,1fr)]">
+        <Card padding="sm" className="flex flex-col lg:min-h-0">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <div className="label-uppercase">Pool</div>
@@ -372,14 +386,14 @@ const FundamentalFirstPage: React.FC = () => {
             </div>
             <div className="text-xs text-muted-text">{filteredCandidates.length}/{candidates.length}</div>
           </div>
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
+          <div className="max-h-[45vh] space-y-2 overflow-y-auto overscroll-contain pr-1 lg:max-h-none lg:min-h-0 lg:flex-1">
             {loading ? <div className="p-6 text-center text-sm text-muted-text">加载中...</div> : null}
             {!loading && filteredCandidates.length ? filteredCandidates.map((row) => (
               <CandidateListItem
                 key={row.code}
                 row={row}
                 active={row.code === selected?.code}
-                onSelect={() => setSelectedCode(row.code)}
+                onSelect={() => handleSelectCandidate(row.code)}
               />
             )) : null}
             {!loading && !filteredCandidates.length ? (
@@ -388,14 +402,14 @@ const FundamentalFirstPage: React.FC = () => {
           </div>
         </Card>
 
-        <section className="min-h-0 overflow-y-auto pr-1">
+        <section ref={detailRef} className="scroll-mt-20 pr-1 lg:min-h-0 lg:overflow-y-auto">
           {selected ? (
             <div className="space-y-4 pb-6">
               <Card padding="lg">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-3xl font-semibold text-foreground">{selected.name}</h2>
+                      <h2 className="text-2xl font-semibold text-foreground sm:text-3xl">{selected.name}</h2>
                       <Badge variant={selectedMeta.tone} size="md">{selectedMeta.label}</Badge>
                     </div>
                     <div className="mt-2 flex flex-wrap items-center gap-2 text-sm text-muted-text">
@@ -403,7 +417,7 @@ const FundamentalFirstPage: React.FC = () => {
                       <span>{selectedMeta.description}</span>
                     </div>
                   </div>
-                  <div className="rounded-2xl border border-border/60 bg-surface/30 px-4 py-3 text-right">
+                  <div className="w-full rounded-2xl border border-border/60 bg-surface/30 px-4 py-3 text-left sm:w-auto sm:text-right">
                     <div className="text-xs text-muted-text">基本面优先总分</div>
                     <div className="mt-1 font-mono text-3xl font-semibold text-foreground">{formatNumber(selected.fundamental_first_score, 1)}</div>
                   </div>
@@ -501,11 +515,11 @@ const FundamentalFirstPage: React.FC = () => {
         </section>
       </div>
 
-      <div className="mt-4 grid flex-shrink-0 gap-4 xl:grid-cols-2">
+      <div className="mt-4 grid flex-shrink-0 gap-4 pb-4 xl:grid-cols-2">
         <Card title="模拟盘持仓" subtitle="Holdings" padding="none">
           {paper?.holdings.length ? (
             <div className="overflow-x-auto">
-              <table className="min-w-full text-left text-sm">
+              <table className="min-w-[720px] text-left text-sm">
                 <thead className="border-b border-border/60 text-xs text-muted-text"><tr><th className="px-3 py-3">股票</th><th className="px-3 py-3 text-right">股数</th><th className="px-3 py-3 text-right">成本价</th><th className="px-3 py-3 text-right">现价</th><th className="px-3 py-3 text-right">市值</th><th className="px-3 py-3 text-right">收益率</th><th className="px-3 py-3 text-right">止损</th></tr></thead>
                 <tbody>{paper.holdings.map((row) => <HoldingRow key={row.code} row={row} />)}</tbody>
               </table>
@@ -528,7 +542,7 @@ const FundamentalFirstPage: React.FC = () => {
               <div className="mb-2 flex items-center gap-2 text-xs text-muted-text"><BarChart3 className="h-4 w-4" />最近交易</div>
               {paper?.trades.length ? (
                 <div className="max-h-56 overflow-y-auto">
-                  <table className="min-w-full text-left text-sm">
+                  <table className="min-w-[760px] text-left text-sm">
                     <tbody>{paper.trades.slice(0, 8).map((row, index) => <TradeRow key={(row.code || "") + String(index)} row={row} />)}</tbody>
                   </table>
                 </div>
