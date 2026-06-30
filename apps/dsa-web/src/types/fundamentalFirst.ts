@@ -43,6 +43,17 @@ export interface FundamentalCandidate {
   plan_level?: string;
   final_action?: string;
   warnings?: string;
+  serenity_research_score?: number;
+  serenity_chain_position?: string;
+  serenity_bottleneck_layer?: string;
+  serenity_chain_note?: string;
+  serenity_positioning_verdict?: string;
+  serenity_evidence_grade?: string;
+  serenity_customer_order_evidence?: string;
+  serenity_financial_evidence?: string;
+  serenity_valuation_stretch?: string;
+  serenity_downgrade_conditions?: string;
+  serenity_opportunity_rationale?: string;
   research_next_step?: string;
 }
 

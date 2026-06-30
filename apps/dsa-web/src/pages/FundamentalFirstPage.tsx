@@ -104,6 +104,18 @@ const ScoreCell: React.FC<{ label: string; value: unknown; tone?: Tone }> = ({ l
   );
 };
 
+function textOrDash(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "--";
+  return String(value);
+}
+
+const SerenityField: React.FC<{ label: string; value: unknown; wide?: boolean }> = ({ label, value, wide }) => (
+  <div className={cn("rounded-xl border border-border/50 bg-surface/25 p-4", wide && "md:col-span-2 xl:col-span-3")}>
+    <div className="label-uppercase">{label}</div>
+    <div className="mt-2 text-sm leading-6 text-secondary-text">{textOrDash(value)}</div>
+  </div>
+);
+
 const CandidateListItem: React.FC<{
   row: FundamentalCandidate;
   active: boolean;
@@ -444,6 +456,27 @@ const FundamentalFirstPage: React.FC = () => {
                     <div className="mt-2 text-sm leading-6 text-secondary-text">{selected.research_next_step || selected.final_action || "等待下一轮证据、估值或交易结构确认"}</div>
                     <div className="mt-3 text-xs leading-5 text-muted-text">{[selected.financial_statement_warnings, selected.data_quality_warnings, selected.warnings, selected.market_reason].filter(Boolean).join("；") || "暂无额外风险提示"}</div>
                   </div>
+                </div>
+              </Card>
+
+              <Card title="Serenity 研究层" subtitle="Why" padding="md">
+                <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
+                  <div className="text-sm leading-6 text-muted-text">把产业链卡点、证据强度、估值压力和交易闸门放在同一张研究卡里。</div>
+                  <div className="rounded-xl border border-cyan/30 bg-cyan/10 px-3 py-2 text-sm text-cyan">
+                    研究分 {formatNumber(selected.serenity_research_score, 1)}
+                  </div>
+                </div>
+                <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                  <SerenityField label="产业链位置" value={selected.serenity_chain_position} />
+                  <SerenityField label="核心卡点" value={selected.serenity_bottleneck_layer} />
+                  <SerenityField label="公司是否真卡位" value={selected.serenity_positioning_verdict} />
+                  <SerenityField label="证据等级" value={selected.serenity_evidence_grade} />
+                  <SerenityField label="估值是否透支" value={selected.serenity_valuation_stretch} />
+                  <SerenityField label="识别依据" value={selected.serenity_chain_note} />
+                  <SerenityField label="客户/认证/订单证据" value={selected.serenity_customer_order_evidence} wide />
+                  <SerenityField label="财务质量证据" value={selected.serenity_financial_evidence} wide />
+                  <SerenityField label="反证与降级条件" value={selected.serenity_downgrade_conditions} wide />
+                  <SerenityField label="为什么进入/不进入交易机会层" value={selected.serenity_opportunity_rationale} wide />
                 </div>
               </Card>
 
