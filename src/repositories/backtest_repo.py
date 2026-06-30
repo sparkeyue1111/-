@@ -11,7 +11,7 @@ import logging
 from datetime import date, datetime, timedelta
 from typing import List, Optional, Tuple
 
-from sqlalchemy import and_, delete, desc, func, or_, select
+from sqlalchemy import and_, case, delete, desc, func, or_, select
 
 from src.storage import BacktestResult, BacktestSummary, DatabaseManager, AnalysisHistory
 
@@ -62,13 +62,17 @@ class BacktestRepository:
             query = select(AnalysisHistory).where(and_(*conditions))
 
             if not force:
-                existing_ids = select(BacktestResult.analysis_history_id).where(
+                # Keep completed evaluations stable, but retry stale insufficient/error rows.
+                # A previous run may have marked a record insufficient before daily bars
+                # were available; once data is later backfilled it should not stay stuck.
+                completed_ids = select(BacktestResult.analysis_history_id).where(
                     and_(
                         BacktestResult.eval_window_days == eval_window_days,
                         BacktestResult.engine_version == engine_version,
+                        BacktestResult.eval_status == "completed",
                     )
                 )
-                query = query.where(AnalysisHistory.id.not_in(existing_ids))
+                query = query.where(AnalysisHistory.id.not_in(completed_ids))
 
             query = query.order_by(desc(AnalysisHistory.created_at)).limit(limit)
             rows = session.execute(query).scalars().all()
@@ -139,6 +143,7 @@ class BacktestRepository:
                 .join(AnalysisHistory, AnalysisHistory.id == BacktestResult.analysis_history_id)
                 .where(where_clause)
             ).scalar() or 0
+            status_rank = case((BacktestResult.eval_status == "completed", 0), else_=1)
             rows = session.execute(
                 select(
                     BacktestResult,
@@ -151,7 +156,7 @@ class BacktestRepository:
                 )
                 .join(AnalysisHistory, AnalysisHistory.id == BacktestResult.analysis_history_id)
                 .where(where_clause)
-                .order_by(desc(BacktestResult.analysis_date), desc(BacktestResult.evaluated_at))
+                .order_by(status_rank, desc(BacktestResult.analysis_date), desc(BacktestResult.evaluated_at))
                 .offset(offset)
                 .limit(limit)
             ).all()
@@ -180,6 +185,7 @@ class BacktestRepository:
                 days=days,
             )
             where_clause = and_(*conditions) if conditions else True
+            status_rank = case((BacktestResult.eval_status == "completed", 0), else_=1)
             rows = session.execute(
                 select(
                     BacktestResult,
@@ -192,7 +198,7 @@ class BacktestRepository:
                 )
                 .join(AnalysisHistory, AnalysisHistory.id == BacktestResult.analysis_history_id)
                 .where(where_clause)
-                .order_by(desc(BacktestResult.analysis_date), desc(BacktestResult.evaluated_at))
+                .order_by(status_rank, desc(BacktestResult.analysis_date), desc(BacktestResult.evaluated_at))
                 .offset(offset)
                 .limit(limit)
             ).all()
@@ -223,7 +229,7 @@ class BacktestRepository:
                 select(BacktestResult, AnalysisHistory.context_snapshot)
                 .join(AnalysisHistory, AnalysisHistory.id == BacktestResult.analysis_history_id)
                 .where(where_clause)
-                .order_by(desc(BacktestResult.analysis_date), desc(BacktestResult.evaluated_at))
+                .order_by(case((BacktestResult.eval_status == "completed", 0), else_=1), desc(BacktestResult.analysis_date), desc(BacktestResult.evaluated_at))
             )
             if limit is not None:
                 query = query.limit(limit)
@@ -281,7 +287,7 @@ class BacktestRepository:
             query = (
                 select(BacktestResult)
                 .where(where_clause)
-                .order_by(desc(BacktestResult.analysis_date), desc(BacktestResult.evaluated_at))
+                .order_by(case((BacktestResult.eval_status == "completed", 0), else_=1), desc(BacktestResult.analysis_date), desc(BacktestResult.evaluated_at))
             )
             if limit is not None:
                 query = query.limit(limit)

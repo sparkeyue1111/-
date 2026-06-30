@@ -45,8 +45,14 @@ class BacktestService:
 
         if eval_window_days is None:
             eval_window_days = getattr(config, "backtest_eval_window_days", 10)
+
+        eval_window_days = int(eval_window_days)
+        dynamic_min_age_days = max(eval_window_days, (eval_window_days * 7 + 4) // 5 + 3)
         if min_age_days is None:
-            min_age_days = getattr(config, "backtest_min_age_days", 14)
+            configured_min_age_days = int(getattr(config, "backtest_min_age_days", 14))
+            min_age_days = max(configured_min_age_days, dynamic_min_age_days)
+        else:
+            min_age_days = int(min_age_days)
 
         engine_version = getattr(config, "backtest_engine_version", "v1")
         neutral_band_pct = float(getattr(config, "backtest_neutral_band_pct", 2.0))
@@ -199,7 +205,10 @@ class BacktestService:
 
         saved = 0
         if results_to_save:
-            saved = self.repo.save_results_batch(results_to_save, replace_existing=force)
+            # Always replace rows for the processed analysis ids. Non-force runs exclude
+            # completed rows in the repository, but may intentionally retry prior
+            # insufficient/error rows after daily data becomes available.
+            saved = self.repo.save_results_batch(results_to_save, replace_existing=True)
 
         if saved:
             self._recompute_summaries(

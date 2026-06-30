@@ -11,7 +11,9 @@ TMP_CRON="$(mktemp)"
 crontab -l 2>/dev/null | grep -v "scripts/star_assistant_v21" | grep -v "星星分析助手 v2" > "$TMP_CRON" || true
 
 cat >> "$TMP_CRON" <<CRON
-# 星星分析助手 v2.4：基本面优先策略流水线
+# 星星分析助手 v2.5：基本面优先策略流水线
+40 8 * * 1-5 PROJECT_DIR=$PROJECT_DIR $PROJECT_DIR/scripts/star_assistant_v21/run_light_monitor.sh premarket >> $LOG_DIR/light_monitor_premarket_cron.log 2>&1
+50 14 * * 1-5 PROJECT_DIR=$PROJECT_DIR $PROJECT_DIR/scripts/star_assistant_v21/run_light_monitor.sh intraday >> $LOG_DIR/light_monitor_intraday_cron.log 2>&1
 5 20 * * 1-5 PROJECT_DIR=$PROJECT_DIR ANALYZE_COUNT=15 $PROJECT_DIR/scripts/star_assistant_v21/run_fundamental_pool.sh >> $LOG_DIR/fundamental_pool_cron.log 2>&1
 15 20 * * 1-5 PROJECT_DIR=$PROJECT_DIR $PROJECT_DIR/scripts/star_assistant_v21/build_financial_statements.sh >> $LOG_DIR/financial_statements_cron.log 2>&1
 45 20 * * 1-5 PROJECT_DIR=$PROJECT_DIR $PROJECT_DIR/scripts/star_assistant_v21/run_daily_analysis_from_pool.sh >> $LOG_DIR/daily_analysis_cron.log 2>&1
@@ -31,5 +33,5 @@ CRON
 crontab "$TMP_CRON"
 rm -f "$TMP_CRON"
 
-echo "Installed star_assistant_v24 cron jobs for $PROJECT_DIR"
+echo "Installed star_assistant_v25 cron jobs for $PROJECT_DIR"
 crontab -l | grep "scripts/star_assistant_v21" || true
