@@ -190,6 +190,10 @@ const FundamentalFirstPage: React.FC = () => {
   const [selectedCode, setSelectedCode] = useState<string>("");
   const [filterText, setFilterText] = useState("");
   const [activeTab, setActiveTab] = useState<CandidateTab>("all");
+  const [visibleCount, setVisibleCount] = useState(15);
+  const [selectedDetail, setSelectedDetail] = useState<FundamentalCandidate | null>(null);
+  const [selectedDetailLoading, setSelectedDetailLoading] = useState(false);
+  const [selectedDetailError, setSelectedDetailError] = useState<string | null>(null);
   const [latestReport, setLatestReport] = useState<AnalysisReport | null>(null);
   const [latestReportLoading, setLatestReportLoading] = useState(false);
   const [latestReportError, setLatestReportError] = useState<string | null>(null);
@@ -223,9 +227,18 @@ const FundamentalFirstPage: React.FC = () => {
   const paper = dashboard?.paper;
   const state = paper?.state || {};
   const equity = asNumber(state.equity) ?? asNumber(state.initial_capital) ?? asNumber(state.initialCapital) ?? 0;
-  const initial = asNumber(state.initial_capital) ?? asNumber(state.initialCapital) ?? 100000;
+  const initial = asNumber(state.initial_capital) ?? asNumber(state.initialCapital) ?? 1000000;
   const totalReturn = initial > 0 ? ((equity / initial) - 1) * 100 : 0;
   const latestCurve = useMemo(() => (paper?.equityCurve || []).slice(-8), [paper?.equityCurve]);
+  const shadowPaper = dashboard?.shadowPaper;
+  const shadowState = shadowPaper?.state || {};
+  const shadowEquity = asNumber(shadowState.equity) ?? asNumber(shadowState.initial_capital) ?? 0;
+  const shadowInitial = asNumber(shadowState.initial_capital) ?? 1000000;
+  const shadowReturn = shadowInitial > 0 ? ((shadowEquity / shadowInitial) - 1) * 100 : 0;
+  const shadowCurve = useMemo(() => (shadowPaper?.equityCurve || []).slice(-8), [shadowPaper?.equityCurve]);
+  const strictPending = state.pending_orders?.length ?? 0;
+  const shadowPending = shadowState.pending_orders?.length ?? 0;
+  const strictRejectedOrder = state.order_rejections?.[0];
   const qualitySummary = dashboard?.quality?.summary || {};
   const qualityScore = asNumber(qualitySummary.overall_score);
   const qualityStatus = typeof qualitySummary.status === "string" ? qualitySummary.status : "--";
@@ -255,14 +268,28 @@ const FundamentalFirstPage: React.FC = () => {
     });
   }, [activeTab, candidates, filterText]);
 
-  const selected = useMemo(
+  useEffect(() => {
+    setVisibleCount(15);
+  }, [activeTab, filterText]);
+
+  const visibleCandidates = useMemo(
+    () => filteredCandidates.slice(0, visibleCount),
+    [filteredCandidates, visibleCount],
+  );
+
+  const selectedSummary = useMemo(
     () => candidates.find((row) => row.code === selectedCode) || candidates[0],
     [candidates, selectedCode],
   );
+  const selected = selectedDetail?.code === selectedSummary?.code ? selectedDetail : selectedSummary;
   const selectedMeta = decisionMeta(selected?.decision);
   const selectedHolding = useMemo(
     () => (paper?.holdings || []).find((row) => row.code === selected?.code),
     [paper?.holdings, selected?.code],
+  );
+  const selectedShadowHolding = useMemo(
+    () => (shadowPaper?.holdings || []).find((row) => row.code === selected?.code),
+    [selected?.code, shadowPaper?.holdings],
   );
 
   const handleSelectCandidate = useCallback((code: string) => {
@@ -276,32 +303,52 @@ const FundamentalFirstPage: React.FC = () => {
 
   useEffect(() => {
     let active = true;
-    setLatestReport(null);
-    setLatestReportError(null);
-    if (!selected?.code) {
-      setLatestReportLoading(false);
+    setSelectedDetail(null);
+    setSelectedDetailError(null);
+    if (!selectedSummary?.code) {
+      setSelectedDetailLoading(false);
       return () => { active = false; };
     }
-    setLatestReportLoading(true);
-    historyApi.getList({ stockCode: selected.code, limit: 1 })
-      .then(async (list) => {
-        if (!active) return;
-        const item = list.items[0];
-        if (!item?.id) {
-          setLatestReport(null);
-          return;
-        }
-        const detail = await historyApi.getDetail(item.id);
-        if (active) setLatestReport(detail);
+    setSelectedDetailLoading(true);
+    fundamentalFirstApi.getCandidate(selectedSummary.code)
+      .then((detail) => {
+        if (active) setSelectedDetail(detail);
       })
       .catch((err) => {
-        if (active) setLatestReportError(err instanceof Error ? err.message : "历史报告加载失败");
+        if (active) setSelectedDetailError(err instanceof Error ? err.message : "候选详情加载失败");
       })
       .finally(() => {
-        if (active) setLatestReportLoading(false);
+        if (active) setSelectedDetailLoading(false);
       });
     return () => { active = false; };
-  }, [selected?.code]);
+  }, [selectedSummary?.code]);
+
+  useEffect(() => {
+    setLatestReport(null);
+    setLatestReportError(null);
+    setLatestReportLoading(false);
+    setMarkdownDrawerOpen(false);
+  }, [selectedSummary?.code]);
+
+  const loadLatestReport = useCallback(async () => {
+    if (!selectedSummary?.code) return;
+    setLatestReportLoading(true);
+    setLatestReportError(null);
+    try {
+      const list = await historyApi.getList({ stockCode: selectedSummary.code, limit: 1 });
+      const item = list.items[0];
+      if (!item?.id) {
+        setLatestReport(null);
+        setLatestReportError("这只股票尚未生成单票 AI 报告。");
+        return;
+      }
+      setLatestReport(await historyApi.getDetail(item.id));
+    } catch (err) {
+      setLatestReportError(err instanceof Error ? err.message : "历史报告加载失败");
+    } finally {
+      setLatestReportLoading(false);
+    }
+  }, [selectedSummary?.code]);
 
   const handleOpenAnalysis = useCallback(() => {
     if (!selected) return;
@@ -386,7 +433,12 @@ const FundamentalFirstPage: React.FC = () => {
         <StatTile label="研究队列" value={researchQueue + fundamentalPool} hint={"深研 " + researchQueue + " / 基本面池 " + fundamentalPool} icon={ClipboardList} />
         <StatTile label="数据质量" value={qualityStatus + "/" + (qualityScore === null ? "--" : qualityScore.toFixed(0))} hint={weakStockCount + " 只数据偏弱"} icon={Database} />
         <StatTile label="前向验证" value={forwardPredictionCount} hint={"今日保存 " + forwardTodayCount + " 条判断"} icon={LineChart} />
-        <StatTile label="模拟盘权益" value={formatMoney(equity)} hint={"累计收益 " + totalReturn.toFixed(2) + "%"} icon={WalletCards} />
+        <StatTile
+          label="双轨模拟盘"
+          value={formatMoney(equity)}
+          hint={"严格 " + totalReturn.toFixed(2) + "% / 影子 " + shadowReturn.toFixed(2) + "% / 待确认 " + strictPending + "+" + shadowPending}
+          icon={WalletCards}
+        />
       </div>
 
       <div className="mt-4 grid gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[22rem_minmax(0,1fr)]">
@@ -400,7 +452,7 @@ const FundamentalFirstPage: React.FC = () => {
           </div>
           <div className="max-h-[45vh] space-y-2 overflow-y-auto overscroll-contain pr-1 lg:max-h-none lg:min-h-0 lg:flex-1">
             {loading ? <div className="p-6 text-center text-sm text-muted-text">加载中...</div> : null}
-            {!loading && filteredCandidates.length ? filteredCandidates.map((row) => (
+            {!loading && visibleCandidates.length ? visibleCandidates.map((row) => (
               <CandidateListItem
                 key={row.code}
                 row={row}
@@ -408,6 +460,17 @@ const FundamentalFirstPage: React.FC = () => {
                 onSelect={() => handleSelectCandidate(row.code)}
               />
             )) : null}
+            {!loading && visibleCandidates.length < filteredCandidates.length ? (
+              <Button
+                type="button"
+                variant="secondary"
+                size="md"
+                className="w-full"
+                onClick={() => setVisibleCount((count) => count + 15)}
+              >
+                加载更多（剩余 {filteredCandidates.length - visibleCandidates.length}）
+              </Button>
+            ) : null}
             {!loading && !filteredCandidates.length ? (
               <EmptyState title="暂无匹配股票" description="调整筛选条件后再看。" icon={<Search className="h-6 w-6" />} />
             ) : null}
@@ -417,6 +480,12 @@ const FundamentalFirstPage: React.FC = () => {
         <section ref={detailRef} className="scroll-mt-20 pr-1 lg:min-h-0 lg:overflow-y-auto">
           {selected ? (
             <div className="space-y-4 pb-6">
+              {selectedDetailLoading ? (
+                <div className="text-xs text-muted-text">正在加载完整研究详情...</div>
+              ) : null}
+              {selectedDetailError ? (
+                <div className="text-xs text-warning">{selectedDetailError}，当前显示精简摘要。</div>
+              ) : null}
               <Card padding="lg">
                 <div className="flex flex-wrap items-start justify-between gap-3">
                   <div>
@@ -524,21 +593,52 @@ const FundamentalFirstPage: React.FC = () => {
                       <div className="text-xs text-muted-text">报告时间：{latestReport.meta.createdAt || "--"}</div>
                     </div>
                   ) : (
-                    <EmptyState title="暂无历史报告" description={latestReportError || "这只股票尚未生成单票 AI 报告。"} icon={<FileText className="h-6 w-6" />} />
+                    <div className="space-y-4">
+                      <EmptyState
+                        title={latestReportError ? "报告暂不可用" : "AI 报告按需加载"}
+                        description={latestReportError || "点击后再读取该股票的最新历史报告，减少首屏等待。"}
+                        icon={<FileText className="h-6 w-6" />}
+                      />
+                      <Button type="button" variant="secondary" size="md" className="w-full" onClick={() => void loadLatestReport()}>
+                        加载 AI 报告
+                      </Button>
+                    </div>
                   )}
                 </Card>
               </div>
 
               <Card title="现实模拟盘关联" subtitle="Paper" padding="md">
-                {selectedHolding ? (
-                  <div className="grid gap-3 md:grid-cols-4">
-                    <ScoreCell label="持仓股数" value={selectedHolding.shares} />
-                    <ScoreCell label="成本价" value={selectedHolding.entry_price} />
-                    <ScoreCell label="现价" value={selectedHolding.last_price} />
-                    <ScoreCell label="收益率" value={selectedHolding.unrealized_return_pct} tone={asNumber(selectedHolding.unrealized_return_pct) !== null && Number(selectedHolding.unrealized_return_pct) >= 0 ? "success" : "danger"} />
+                {selectedHolding || selectedShadowHolding ? (
+                  <div className="space-y-4">
+                    {selectedHolding ? (
+                      <div>
+                        <div className="mb-2"><Badge variant="success">严格盘持仓</Badge></div>
+                        <div className="grid gap-3 md:grid-cols-4">
+                          <ScoreCell label="持仓股数" value={selectedHolding.shares} />
+                          <ScoreCell label="成本价" value={selectedHolding.entry_price} />
+                          <ScoreCell label="现价" value={selectedHolding.last_price} />
+                          <ScoreCell label="收益率" value={selectedHolding.unrealized_return_pct} tone={asNumber(selectedHolding.unrealized_return_pct) !== null && Number(selectedHolding.unrealized_return_pct) >= 0 ? "success" : "danger"} />
+                        </div>
+                      </div>
+                    ) : null}
+                    {selectedShadowHolding ? (
+                      <div>
+                        <div className="mb-2"><Badge variant="info">影子盘持仓</Badge></div>
+                        <div className="grid gap-3 md:grid-cols-4">
+                          <ScoreCell label="持仓股数" value={selectedShadowHolding.shares} />
+                          <ScoreCell label="成本价" value={selectedShadowHolding.entry_price} />
+                          <ScoreCell label="现价" value={selectedShadowHolding.last_price} />
+                          <ScoreCell label="收益率" value={selectedShadowHolding.unrealized_return_pct} tone={asNumber(selectedShadowHolding.unrealized_return_pct) !== null && Number(selectedShadowHolding.unrealized_return_pct) >= 0 ? "success" : "danger"} />
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                 ) : (
-                  <EmptyState title="未进入模拟持仓" description="只有交易候选在下一交易日仍满足条件，模拟盘才会按规则买入。" icon={<WalletCards className="h-6 w-6" />} />
+                  <EmptyState
+                    title="未进入模拟持仓"
+                    description={strictRejectedOrder?.reason || "严格盘只接收严格买入；影子盘接收已深研且连续满足条件的交易候选，两者都在下一次运行确认后成交。"}
+                    icon={<WalletCards className="h-6 w-6" />}
+                  />
                 )}
               </Card>
             </div>
@@ -548,8 +648,8 @@ const FundamentalFirstPage: React.FC = () => {
         </section>
       </div>
 
-      <div className="mt-4 grid flex-shrink-0 gap-4 pb-4 xl:grid-cols-2">
-        <Card title="模拟盘持仓" subtitle="Holdings" padding="none">
+      <div className="mt-4 grid flex-shrink-0 gap-4 pb-4 xl:grid-cols-3">
+        <Card title="严格盘持仓" subtitle="Strict" padding="none">
           {paper?.holdings.length ? (
             <div className="overflow-x-auto">
               <table className="min-w-[720px] text-left text-sm">
@@ -557,26 +657,41 @@ const FundamentalFirstPage: React.FC = () => {
                 <tbody>{paper.holdings.map((row) => <HoldingRow key={row.code} row={row} />)}</tbody>
               </table>
             </div>
-          ) : <EmptyState title="暂无持仓" description="只有交易候选出现时，模拟盘才会按规则买入。" icon={<WalletCards className="h-6 w-6" />} />}
+          ) : <EmptyState title="暂无持仓" description="只有严格闸门全部通过并在下一次运行仍有效时才买入。" icon={<WalletCards className="h-6 w-6" />} />}
         </Card>
 
-        <Card title="净值与交易" subtitle="Equity" padding="md">
-          <div className="grid gap-3 lg:grid-cols-2">
+        <Card title="候选影子盘持仓" subtitle="Shadow" padding="none">
+          {shadowPaper?.holdings.length ? (
+            <div className="overflow-x-auto">
+              <table className="min-w-[720px] text-left text-sm">
+                <thead className="border-b border-border/60 text-xs text-muted-text"><tr><th className="px-3 py-3">股票</th><th className="px-3 py-3 text-right">股数</th><th className="px-3 py-3 text-right">成本价</th><th className="px-3 py-3 text-right">现价</th><th className="px-3 py-3 text-right">市值</th><th className="px-3 py-3 text-right">收益率</th><th className="px-3 py-3 text-right">止损</th></tr></thead>
+                <tbody>{shadowPaper.holdings.map((row) => <HoldingRow key={row.code} row={row} />)}</tbody>
+              </table>
+            </div>
+          ) : <EmptyState title="暂无影子持仓" description="已深研交易候选需连续两次满足交易分和证据条件后才进入。" icon={<WalletCards className="h-6 w-6" />} />}
+        </Card>
+
+        <Card title="双轨净值与交易" subtitle="Equity" padding="md">
+          <div className="grid gap-3">
             <div className="rounded-xl border border-border/50 p-3">
-              <div className="mb-2 flex items-center gap-2 text-xs text-muted-text"><Activity className="h-4 w-4" />净值曲线</div>
-              {latestCurve.length ? latestCurve.map((point) => (
-                <div key={point.date} className="flex items-center justify-between border-b border-border/30 py-2 text-xs last:border-0">
-                  <span className="text-muted-text">{point.date}</span>
-                  <span className="font-mono text-foreground">{formatMoney(point.equity)}</span>
+              <div className="mb-2 flex items-center gap-2 text-xs text-muted-text"><Activity className="h-4 w-4" />严格 / 影子净值</div>
+              {latestCurve.length || shadowCurve.length ? Array.from(new Set([...latestCurve, ...shadowCurve].map((point) => point.date))).slice(-8).map((date) => (
+                <div key={date} className="grid grid-cols-[1fr_auto_auto] items-center gap-3 border-b border-border/30 py-2 text-xs last:border-0">
+                  <span className="text-muted-text">{date}</span>
+                  <span className="font-mono text-foreground">{formatMoney(latestCurve.find((point) => point.date === date)?.equity)}</span>
+                  <span className="font-mono text-cyan">{formatMoney(shadowCurve.find((point) => point.date === date)?.equity)}</span>
                 </div>
               )) : <div className="py-4 text-center text-xs text-muted-text">暂无净值记录</div>}
             </div>
             <div className="rounded-xl border border-border/50 p-3">
               <div className="mb-2 flex items-center gap-2 text-xs text-muted-text"><BarChart3 className="h-4 w-4" />最近交易</div>
-              {paper?.trades.length ? (
+              {paper?.trades.length || shadowPaper?.trades.length ? (
                 <div className="max-h-56 overflow-y-auto">
                   <table className="min-w-[760px] text-left text-sm">
-                    <tbody>{paper.trades.slice(0, 8).map((row, index) => <TradeRow key={(row.code || "") + String(index)} row={row} />)}</tbody>
+                    <tbody>
+                      {(paper?.trades || []).slice(-4).map((row, index) => <TradeRow key={"strict-" + (row.code || "") + String(index)} row={{ ...row, reason: "[严格] " + (row.reason || "") }} />)}
+                      {(shadowPaper?.trades || []).slice(-4).map((row, index) => <TradeRow key={"shadow-" + (row.code || "") + String(index)} row={{ ...row, reason: "[影子] " + (row.reason || "") }} />)}
+                    </tbody>
                   </table>
                 </div>
               ) : <div className="py-4 text-center text-xs text-muted-text">暂无交易</div>}

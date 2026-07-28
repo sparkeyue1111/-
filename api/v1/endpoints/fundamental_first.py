@@ -5,7 +5,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from fastapi import APIRouter
+from fastapi import APIRouter, HTTPException, Response
 
 router = APIRouter()
 ROOT_DIR = Path(__file__).resolve().parents[3]
@@ -59,6 +59,67 @@ def latest_csv(directory: Path, pattern: str) -> Path | None:
     return files[-1] if files else None
 
 
+COMPACT_CANDIDATE_FIELDS = {
+    "date",
+    "code",
+    "name",
+    "decision",
+    "action",
+    "research_status",
+    "failed_gates",
+    "fundamental_first_score",
+    "company_quality_score",
+    "financial_statement_score",
+    "industry_logic_score",
+    "evidence_quality_score",
+    "value_gap_score",
+    "trade_score",
+    "trade_score_date",
+    "trade_score_source",
+    "market_ok",
+    "current_price",
+    "risk_stop",
+    "data_quality_score",
+    "data_quality_status",
+}
+
+
+def compact_candidate(row: dict[str, Any]) -> dict[str, Any]:
+    return {key: row.get(key) for key in COMPACT_CANDIDATE_FIELDS if key in row}
+
+
+def portfolio_payload(portfolio_dir: Path, *, compact: bool) -> dict[str, Any]:
+    state = read_json(portfolio_dir / "paper_portfolio_state.json", {})
+    holdings = read_csv(portfolio_dir / "current_paper_holdings.csv")
+    equity_curve = read_csv(portfolio_dir / "paper_equity_curve.csv")
+    latest_trade_path = latest_csv(portfolio_dir, "paper_trades_*.csv")
+    trades = read_csv(latest_trade_path) if latest_trade_path else []
+    if compact:
+        raw_state = state if isinstance(state, dict) else {}
+        state = {
+            key: raw_state.get(key)
+            for key in (
+                "cash",
+                "equity",
+                "initial_capital",
+                "last_update",
+                "portfolio_mode",
+                "pending_orders",
+                "order_rejections",
+            )
+            if key in raw_state
+        }
+        equity_curve = equity_curve[-30:]
+        trades = trades[-8:]
+    return {
+        "state": state if isinstance(state, dict) else {},
+        "holdings": holdings,
+        "equityCurve": equity_curve,
+        "trades": trades,
+        "latestTradeFile": latest_trade_path.name if latest_trade_path else "",
+    }
+
+
 def summary_from_candidates(candidates: list[dict[str, Any]]) -> dict[str, Any]:
     counts = {
         "BUY_READY": 0,
@@ -100,50 +161,54 @@ def summary_from_candidates(candidates: list[dict[str, Any]]) -> dict[str, Any]:
 
 
 @router.get("/dashboard")
-def get_fundamental_first_dashboard() -> dict[str, Any]:
+def get_fundamental_first_dashboard(response: Response, compact: bool = False) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, max-age=30, stale-while-revalidate=60"
     candidate_dir = DATA_DIR / "fundamental_first"
     portfolio_dir = DATA_DIR / "paper_portfolio"
+    shadow_portfolio_dir = DATA_DIR / "paper_portfolio_shadow"
     candidates = read_json(candidate_dir / "current_fundamental_first_candidates.json", None)
     if not isinstance(candidates, list):
         candidates = read_csv(candidate_dir / "current_fundamental_first_candidates.csv")
+    paper = portfolio_payload(portfolio_dir, compact=compact)
+    shadow_paper = portfolio_payload(shadow_portfolio_dir, compact=compact)
     opportunities = [row for row in candidates if row.get("decision") in {"BUY_READY", "TRADE_CANDIDATE"}]
     watch = [row for row in candidates if row.get("decision") in {"WATCH", "RESEARCH_QUEUE", "FUNDAMENTAL_POOL", "PENDING_RESEARCH"}]
     quality_dir = DATA_DIR / "data_quality"
     forward_dir = DATA_DIR / "forward_validation"
-    state = read_json(portfolio_dir / "paper_portfolio_state.json", {})
-    holdings = read_csv(portfolio_dir / "current_paper_holdings.csv")
-    equity_curve = read_csv(portfolio_dir / "paper_equity_curve.csv")
-    latest_trade_path = latest_csv(portfolio_dir, "paper_trades_*.csv")
-    trades = read_csv(latest_trade_path) if latest_trade_path else []
     date = ""
     if candidates:
         date = str(candidates[0].get("date") or "")
-    if not date and equity_curve:
-        date = str(equity_curve[-1].get("date") or "")
+    if not date and paper["equityCurve"]:
+        date = str(paper["equityCurve"][-1].get("date") or "")
     quality_summary = read_json(quality_dir / "current_data_quality.json", {})
     quality_checks = read_csv(quality_dir / "current_data_quality_checks.csv")
-    quality_stocks = read_csv(quality_dir / "current_data_quality_stock.csv", limit=80)
+    quality_stocks = [] if compact else read_csv(quality_dir / "current_data_quality_stock.csv", limit=80)
     forward_validation = read_json(forward_dir / "current_forward_validation.json", {})
+    if compact and isinstance(forward_validation, dict):
+        forward_validation = {
+            key: value
+            for key, value in forward_validation.items()
+            if key not in {"errors", "predictions"}
+        }
     latest_reports = {
         "fundamentalFirst": str(latest_csv(REPORT_DIR, "fundamental_first_*.md") or ""),
-        "paperPortfolio": str(latest_csv(REPORT_DIR, "paper_portfolio_*.md") or ""),
+        "paperPortfolio": str(latest_csv(REPORT_DIR, "paper_portfolio_[0-9]*.md") or ""),
+        "paperPortfolioShadow": str(latest_csv(REPORT_DIR, "paper_portfolio_shadow_*.md") or ""),
         "dataQuality": str(latest_csv(REPORT_DIR, "data_quality_*.md") or ""),
         "financialStatements": str(latest_csv(REPORT_DIR, "financial_statements_*.md") or ""),
         "forwardValidation": str(latest_csv(REPORT_DIR, "forward_validation_*.md") or ""),
     }
+    response_candidates = [compact_candidate(row) for row in candidates] if compact else candidates
+    response_opportunities = [compact_candidate(row) for row in opportunities] if compact else opportunities
+    response_watch = [compact_candidate(row) for row in watch] if compact else watch
     return {
         "date": date,
         "summary": summary_from_candidates(candidates),
-        "candidates": candidates,
-        "opportunities": opportunities,
-        "watch": watch,
-        "paper": {
-            "state": state if isinstance(state, dict) else {},
-            "holdings": holdings,
-            "equityCurve": equity_curve,
-            "trades": trades,
-            "latestTradeFile": latest_trade_path.name if latest_trade_path else "",
-        },
+        "candidates": response_candidates,
+        "opportunities": response_opportunities,
+        "watch": response_watch,
+        "paper": paper,
+        "shadowPaper": shadow_paper,
         "quality": {
             "summary": quality_summary if isinstance(quality_summary, dict) else {},
             "checks": quality_checks,
@@ -152,3 +217,18 @@ def get_fundamental_first_dashboard() -> dict[str, Any]:
         "forwardValidation": forward_validation if isinstance(forward_validation, dict) else {},
         "reports": latest_reports,
     }
+
+
+@router.get("/candidates/{code}")
+def get_fundamental_candidate(code: str, response: Response) -> dict[str, Any]:
+    response.headers["Cache-Control"] = "private, max-age=60, stale-while-revalidate=120"
+    normalized = "".join(char for char in str(code) if char.isdigit())[-6:].zfill(6)
+    candidate_dir = DATA_DIR / "fundamental_first"
+    candidates = read_json(candidate_dir / "current_fundamental_first_candidates.json", None)
+    if not isinstance(candidates, list):
+        candidates = read_csv(candidate_dir / "current_fundamental_first_candidates.csv")
+    for row in candidates:
+        row_code = "".join(char for char in str(row.get("code") or "") if char.isdigit())[-6:].zfill(6)
+        if row_code == normalized:
+            return row
+    raise HTTPException(status_code=404, detail="candidate not found")

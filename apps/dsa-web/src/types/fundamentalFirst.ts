@@ -31,6 +31,7 @@ export interface FundamentalCandidate {
   expectation_gap?: string;
   trade_score?: number;
   trade_score_date?: string;
+  trade_score_source?: string;
   ret20?: number | string;
   ret60?: number | string;
   ret120?: number | string;
@@ -80,6 +81,9 @@ export interface PaperState {
   lastUpdate?: string;
   positions?: unknown[];
   trades?: unknown[];
+  pending_orders?: unknown[];
+  order_rejections?: Array<{ date?: string; code?: string; name?: string; reason?: string }>;
+  portfolio_mode?: "strict" | "shadow" | string;
 }
 
 export interface PaperHolding {
@@ -162,6 +166,13 @@ export interface FundamentalFirstDashboard {
   opportunities: FundamentalCandidate[];
   watch: FundamentalCandidate[];
   paper: {
+    state: PaperState;
+    holdings: PaperHolding[];
+    equityCurve: EquityPoint[];
+    trades: PaperTrade[];
+    latestTradeFile?: string;
+  };
+  shadowPaper?: {
     state: PaperState;
     holdings: PaperHolding[];
     equityCurve: EquityPoint[];

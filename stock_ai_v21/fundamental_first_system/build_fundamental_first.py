@@ -126,7 +126,41 @@ def adjusted_score_v21(row: pd.Series) -> float:
     return round(clamp(score), 4)
 
 
-def load_trade_scores(backtest_dir: Path, date_key: str) -> tuple[dict[str, dict[str, Any]], str]:
+def rebase_trade_row(row: pd.Series, current_price: float) -> pd.Series:
+    """Refresh weekly proxy metrics with the latest closing price.
+
+    The full-market backtest is intentionally weekly because it is expensive.
+    For the live strategy pool we can recover each horizon's reference price
+    from the previous return and revalue it with today's close. Volatility and
+    liquidity stay on the latest full-market snapshot.
+    """
+    old_close = safe_float(row.get('close'))
+    if math.isnan(current_price) or current_price <= 0 or math.isnan(old_close) or old_close <= 0:
+        return row
+
+    refreshed = row.copy()
+    refreshed['close'] = current_price
+    for field in ('ret20', 'ret60', 'ret120'):
+        old_return = safe_float(row.get(field))
+        if math.isnan(old_return) or old_return <= -99.0:
+            continue
+        reference_close = old_close / (1.0 + old_return / 100.0)
+        if reference_close > 0:
+            refreshed[field] = (current_price / reference_close - 1.0) * 100.0
+
+    old_drawdown = safe_float(row.get('drawdown120'))
+    if not math.isnan(old_drawdown) and old_drawdown > -99.0:
+        high120 = old_close / (1.0 + old_drawdown / 100.0)
+        if high120 > 0:
+            refreshed['drawdown120'] = min(0.0, (current_price / high120 - 1.0) * 100.0)
+    return refreshed
+
+
+def load_trade_scores(
+    backtest_dir: Path,
+    date_key: str,
+    current_prices: dict[str, float] | None = None,
+) -> tuple[dict[str, dict[str, Any]], str]:
     path = latest_file(backtest_dir, 'market_v2_score_table_*.csv', date_key)
     if path is None:
         return {}, 'missing_market_v2_score_table'
@@ -142,15 +176,30 @@ def load_trade_scores(backtest_dir: Path, date_key: str) -> tuple[dict[str, dict
     result: dict[str, dict[str, Any]] = {}
     for _, row in df.iterrows():
         code = normalize_code(row.get('code'))
+        current_price = safe_float((current_prices or {}).get(code))
+        base_date = row['date_dt']
+        trade_row = rebase_trade_row(row, current_price)
+        old_close = safe_float(row.get('close'))
+        refreshed = (
+            not math.isnan(current_price)
+            and current_price > 0
+            and not math.isnan(old_close)
+            and old_close > 0
+        )
         result[code] = {
-            'trade_score': adjusted_score_v21(row),
-            'trade_score_date': row['date_dt'].strftime('%Y-%m-%d') if not pd.isna(row['date_dt']) else '',
-            'ret20': safe_float(row.get('ret20')),
-            'ret60': safe_float(row.get('ret60')),
-            'ret120': safe_float(row.get('ret120')),
-            'vol60': safe_float(row.get('vol60')),
-            'drawdown120': safe_float(row.get('drawdown120')),
-            'close': safe_float(row.get('close')),
+            'trade_score': adjusted_score_v21(trade_row),
+            'trade_score_date': (
+                pd.to_datetime(date_key, format='%Y%m%d').strftime('%Y-%m-%d')
+                if refreshed
+                else (base_date.strftime('%Y-%m-%d') if not pd.isna(base_date) else '')
+            ),
+            'trade_score_source': f'daily_close_overlay:{path.name}' if refreshed else path.name,
+            'ret20': safe_float(trade_row.get('ret20')),
+            'ret60': safe_float(trade_row.get('ret60')),
+            'ret120': safe_float(trade_row.get('ret120')),
+            'vol60': safe_float(trade_row.get('vol60')),
+            'drawdown120': safe_float(trade_row.get('drawdown120')),
+            'close': safe_float(trade_row.get('close')),
         }
     return result, path.name
 
@@ -195,8 +244,215 @@ def add_prefix(frame: pd.DataFrame, prefix: str) -> pd.DataFrame:
 
 
 def has_red_flag(text: str) -> bool:
-    keys = ['经营现金流为负', '退市', '处罚', '立案', '降级', '无法表示', '保留意见', '三表增强层质量偏弱', '经营现金流/利润偏低']
+    keys = [
+        '经营现金流为负',
+        '退市',
+        '处罚',
+        '立案',
+        '无法表示',
+        '保留意见',
+        '三表增强层质量偏弱',
+        '经营现金流/利润偏低',
+    ]
     return any(key in text for key in keys)
+
+
+SERENITY_CHAIN_RULES = [
+    (r"中际旭创|新易盛|天孚通信|光模块|CPO|光通信|高速光|800G|1\.6T", "AI算力光互连/光模块", "高速带宽、低功耗互连和客户认证周期"),
+    (r"海光信息|寒武纪|景嘉微|芯片|GPU|CPU|算力|处理器|AI服务器", "AI算力芯片/服务器", "国产算力供给、生态适配和客户导入"),
+    (r"北方华创|中微公司|华海清科|拓荆科技|芯源微|半导体设备|刻蚀|薄膜|CMP|量测|清洗|先进封装", "半导体设备/先进制造", "设备验证、工艺稳定性、国产替代和扩产节奏"),
+    (r"沪电股份|深南电路|生益科技|胜宏科技|PCB|CCL|覆铜板|服务器板|高速板", "AI服务器PCB/材料", "高速材料、良率、认证和产能爬坡"),
+    (r"宁德时代|电池|储能|锂|正极|负极|隔膜|电解液", "动力电池/储能链", "成本、安全性、客户定点和产能利用率"),
+    (r"中国船舶|中船|船舶|军工|发动机|雷达|导弹|航空", "高端制造/军工船舶", "长周期订单、交付能力、配套供应链和现金流兑现"),
+    (r"证券|券商|银行|保险|金融", "金融服务/资本市场链条", "政策、市场成交活跃度和风险偏好传导，不是硬供应链卡点"),
+    (r"茅台|五粮液|泸州老窖|白酒|消费|食品|饮料", "消费品牌/渠道链条", "品牌定价权、渠道库存、动销和现金回款"),
+    (r"药|医疗|生物|CXO|创新药|器械", "医药制造/医疗服务链", "临床进展、商业化、医保支付和客户验证"),
+]
+
+
+def extract_count(text: str, pattern: str) -> int:
+    match = re.search(pattern, safe_text(text))
+    return int(match.group(1)) if match else 0
+
+
+def serenity_chain(row: pd.Series, name: str) -> tuple[str, str, str]:
+    pieces = [
+        name,
+        safe_text(row.get('lane')),
+        safe_text(row.get('pool_type')),
+        safe_text(row.get('fundamental_notes')),
+        safe_text(row.get('evidence_evidence_notes')),
+        safe_text(row.get('final_reason')),
+        safe_text(row.get('val_expectation_gap_reason')),
+    ]
+    combined = '；'.join(part for part in pieces if part)
+    for pattern, chain_position, bottleneck in SERENITY_CHAIN_RULES:
+        if re.search(pattern, combined, flags=re.IGNORECASE):
+            return chain_position, bottleneck, '已按公司名称/公告关键词初步识别'
+    return '待确认产业链层级', '暂无明确稀缺层，需补行业位置和客户穿透证据', '未识别到稳定产业链关键词'
+
+
+def serenity_evidence_grade(
+    evidence_score: float,
+    research_score: float,
+    evidence_notes: str,
+    evidence_warnings: str,
+) -> str:
+    pdf_count = extract_count(evidence_notes, r'PDF全文解析(\d+)份')
+    project_count = extract_count(evidence_notes, r'项目/订单/客户线索(\d+)条')
+    if evidence_score >= 85 and research_score >= 70 and pdf_count > 0 and 'PDF 正文未完成解析' not in evidence_warnings:
+        return '强：有公告/PDF正文或硬材料支撑'
+    if evidence_score >= 70 or project_count > 0:
+        return '中：有公开公告/互动易线索，但仍需穿透PDF正文和收入映射'
+    if evidence_score >= 45:
+        return '弱：只有初步公开线索，证据链不够闭环'
+    return '待验证：缺少足够公开证据'
+
+
+def serenity_customer_evidence(evidence_notes: str, evidence_warnings: str) -> str:
+    project_count = extract_count(evidence_notes, r'项目/订单/客户线索(\d+)条')
+    ir_count = extract_count(evidence_notes, r'互动易/投资者问答(\d+)条')
+    pdf_count = extract_count(evidence_notes, r'PDF全文解析(\d+)份')
+    parts: list[str] = []
+    if project_count > 0:
+        parts.append(f'标题/元数据层发现{project_count}条项目、订单、客户或认证线索')
+    if ir_count > 0:
+        parts.append(f'互动易/投资者问答有{ir_count}条可追踪线索')
+    if pdf_count > 0:
+        parts.append(f'已有{pdf_count}份PDF正文解析可继续核验')
+    if not parts:
+        parts.append('尚未发现明确客户、认证或订单线索')
+    if 'PDF 正文未完成解析' in evidence_warnings or pdf_count == 0:
+        parts.append('PDF正文未形成闭环，客户/订单真实性和收入占比需要人工抽查')
+    return '；'.join(parts)
+
+
+def serenity_financial_evidence(row: pd.Series, financial_score: float, metric_count: int) -> str:
+    notes = safe_text(row.get('fin_financial_notes')) or safe_text(row.get('fundamental_notes'))
+    warnings = safe_text(row.get('fin_financial_warnings')) or safe_text(row.get('fundamental_warnings'))
+    if not notes:
+        notes = '财务摘要不足，需补三表细项'
+    quality = '较好' if financial_score >= 75 else ('一般' if financial_score >= 60 else '偏弱')
+    return f"财务质量{quality}，可用指标{metric_count}项；{notes}；{warnings or '暂无硬性财务红旗'}"
+
+
+def serenity_valuation_text(valuation_level: str, expectation_gap: str, valuation_warning: str) -> str:
+    level = valuation_level or '估值未确认'
+    gap = expectation_gap or '预期差未确认'
+    warning = valuation_warning or '暂无估值红旗'
+    if level in {'估值偏高', '估值极高'} or gap in {'成长强但估值透支', '低质量+高估值风险', '低质量/高估值风险'}:
+        return f'可能透支：{level}/{gap}；{warning}'
+    if level in {'估值有保护', '估值偏低'}:
+        return f'暂有安全边际：{level}/{gap}；{warning}'
+    return f'中性或待确认：{level}/{gap}；{warning}'
+
+
+def serenity_positioning_verdict(
+    chain_position: str,
+    evidence_grade: str,
+    evidence_score: float,
+    financial_score: float,
+    customer_evidence: str,
+) -> str:
+    if '金融服务' in chain_position:
+        return '不按硬供应链卡点理解，更多是市场活跃度和政策周期传导，需降低卡点评级。'
+    if chain_position.startswith('待确认'):
+        return '暂不能证明真卡位，需先确认产业链层级、客户认证和收入结构。'
+    if '强' in evidence_grade and financial_score >= 70:
+        return '公开证据和财务质量共同支持卡位判断，但仍需持续核对客户/订单转收入。'
+    if '中' in evidence_grade and evidence_score >= 70:
+        return '有卡位线索，但主要仍在公告标题/互动易层，需要PDF正文、客户认证或订单金额继续加固。'
+    if '尚未发现明确' in customer_evidence:
+        return '产业链位置可初步识别，但缺少客户/认证/订单证据，不能视为真卡位。'
+    return '卡位判断偏弱，当前更适合放入研究队列而不是直接交易。'
+
+
+def serenity_downgrade_text(row: pd.Series, failed: list[str], warnings: str, trade_score: float) -> str:
+    rules: list[str] = []
+    downgrade_rule = safe_text(row.get('val_downgrade_rule'))
+    if downgrade_rule:
+        rules.append(downgrade_rule)
+    if failed:
+        rules.append('未过闸门未改善：' + '、'.join(failed))
+    if 'PDF 正文未完成解析' in warnings:
+        rules.append('公告/PDF抽查后不能证明客户、订单或卡点收入')
+    rules.append('经营现金流转弱、应收/存货恶化或毛利率不能体现稀缺性')
+    if trade_score:
+        rules.append('交易分跌破持有阈值或价格触发系统止损')
+    return '；'.join(dict.fromkeys(rule for rule in rules if rule))
+
+
+def serenity_opportunity_text(decision: str, failed: list[str], total_score: float, trade_score: float) -> str:
+    if decision == 'BUY_READY':
+        return f'进入：基本面、证据、估值、交易和市场风控全部通过；总分{total_score:.1f}，交易分{trade_score:.1f}，下一交易日仍满足才进入模拟盘。'
+    if decision in {'WATCH', 'TRADE_CANDIDATE'}:
+        reason = '；'.join(failed) if failed else '仍需等待更好的估值或交易结构'
+        return f'暂不严格买入：{reason}。保留观察，等待证据、估值或交易分共振。'
+    if decision in {'PENDING_RESEARCH', 'RESEARCH_QUEUE', 'FUNDAMENTAL_POOL'}:
+        return '不进入交易机会层：基本面线索存在，但尚未完成公告、证据、估值和AI深研闭环。'
+    reason = '；'.join(failed) if failed else '系统闸门未形成共振'
+    return f'不进入交易机会层：{reason}。'
+
+
+def build_serenity_layer(
+    row: pd.Series,
+    *,
+    name: str,
+    decision: str,
+    failed: list[str],
+    financial_score: float,
+    evidence_score: float,
+    research_score: float,
+    value_score: float,
+    trade_score: float,
+    total_score: float,
+    metric_count: int,
+    valuation_level: str,
+    expectation_gap: str,
+    warnings: str,
+) -> dict[str, Any]:
+    evidence_notes = safe_text(row.get('evidence_evidence_notes'))
+    evidence_warnings = safe_text(row.get('evidence_evidence_warnings'))
+    chain_position, bottleneck_layer, chain_note = serenity_chain(row, name)
+    evidence_grade = serenity_evidence_grade(evidence_score, research_score, evidence_notes, evidence_warnings)
+    customer_evidence = serenity_customer_evidence(evidence_notes, evidence_warnings)
+    financial_evidence = serenity_financial_evidence(row, financial_score, metric_count)
+    valuation_stretch = serenity_valuation_text(
+        valuation_level,
+        expectation_gap,
+        safe_text(row.get('val_valuation_warning')),
+    )
+    positioning_verdict = serenity_positioning_verdict(
+        chain_position,
+        evidence_grade,
+        evidence_score,
+        financial_score,
+        customer_evidence,
+    )
+    downgrade_conditions = serenity_downgrade_text(row, failed, warnings, trade_score)
+    opportunity_rationale = serenity_opportunity_text(decision, failed, total_score, trade_score)
+    chain_score = 80.0 if not chain_position.startswith('待确认') and '金融服务' not in chain_position else (45.0 if '金融服务' in chain_position else 35.0)
+    serenity_score = clamp(
+        evidence_score * 0.28
+        + financial_score * 0.22
+        + research_score * 0.18
+        + value_score * 0.16
+        + trade_score * 0.08
+        + chain_score * 0.08
+    )
+    return {
+        'serenity_research_score': round(serenity_score, 2),
+        'serenity_chain_position': chain_position,
+        'serenity_bottleneck_layer': bottleneck_layer,
+        'serenity_chain_note': chain_note,
+        'serenity_positioning_verdict': positioning_verdict,
+        'serenity_evidence_grade': evidence_grade,
+        'serenity_customer_order_evidence': customer_evidence,
+        'serenity_financial_evidence': financial_evidence,
+        'serenity_valuation_stretch': valuation_stretch,
+        'serenity_downgrade_conditions': downgrade_conditions,
+        'serenity_opportunity_rationale': opportunity_rationale,
+    }
 
 
 def load_data_quality_state(data_quality_dir: Path) -> dict[str, Any]:
@@ -241,13 +497,16 @@ def classify(row: pd.Series, market_state: dict[str, Any], data_quality_state: d
     data_quality_warnings = safe_text(row.get('dq_data_quality_warnings')) or safe_text(data_quality_state.get('notes'))
     global_data_quality_score = safe_float(data_quality_state.get('overall_score'), 75.0)
     global_critical_block = bool(data_quality_state.get('critical_block'))
-    warnings = '；'.join([
+    hard_warning_text = '；'.join([
         safe_text(row.get('fundamental_warnings')),
         safe_text(row.get('fin_financial_warnings')),
         safe_text(row.get('fs_financial_statement_warnings')),
         safe_text(row.get('evidence_evidence_warnings')),
-        safe_text(row.get('val_valuation_warning')),
         data_quality_warnings,
+    ])
+    warnings = '；'.join([
+        hard_warning_text,
+        safe_text(row.get('val_valuation_warning')),
         safe_text(plan.get('downgrade_rule')),
     ])
     company_score = clamp(pool_score * 0.38 + financial_score * 0.42 + learning_score * 0.12 + data_quality_score * 0.08)
@@ -262,7 +521,12 @@ def classify(row: pd.Series, market_state: dict[str, Any], data_quality_state: d
     valuation_gate = expectation_score >= args.min_expectation_gap_score and valuation_level not in {'估值极高'} and expectation_gap not in {'成长强但估值透支', '低质量+高估值风险'}
     trade_gate = trade_score >= args.entry_threshold
     market_ok = bool(market_state.get('market_ok'))
-    red_flag = has_red_flag(warnings)
+    final_layer_downgraded = (
+        safe_text(plan.get('plan_level')) == '降级'
+        or safe_text(plan.get('action')) == '降级'
+        or safe_text(row.get('final_action')) == '降级'
+    )
+    red_flag = has_red_flag(hard_warning_text) or final_layer_downgraded
 
     valuation_hard_block = valuation_level in {'估值极高'} or expectation_gap in {'低质量+高估值风险'}
     soft_evidence_gate = has_deep_research and (evidence_score >= args.soft_evidence_score or research_score >= 50)
@@ -344,6 +608,22 @@ def classify(row: pd.Series, market_state: dict[str, Any], data_quality_state: d
         action = '已研究或硬条件不足，不进入交易机会层'
     price = coalesce_float(row.get('price'), plan.get('snapshot_price'), trade.get('close'), default=math.nan)
     stop = coalesce_float(plan.get('risk_stop'), price * 0.88 if not math.isnan(price) else math.nan, default=math.nan)
+    serenity = build_serenity_layer(
+        row,
+        name=name,
+        decision=decision,
+        failed=failed,
+        financial_score=financial_score,
+        evidence_score=evidence_score,
+        research_score=research_score,
+        value_score=value_score,
+        trade_score=trade_score,
+        total_score=total_score,
+        metric_count=metric_count,
+        valuation_level=valuation_level,
+        expectation_gap=expectation_gap,
+        warnings=warnings,
+    )
     return {
         'date': args.date,
         'code': code,
@@ -376,6 +656,7 @@ def classify(row: pd.Series, market_state: dict[str, Any], data_quality_state: d
         'expectation_gap': expectation_gap,
         'trade_score': round(trade_score, 2),
         'trade_score_date': safe_text(trade.get('trade_score_date')),
+        'trade_score_source': safe_text(trade.get('trade_score_source')),
         'ret20': trade.get('ret20', ''),
         'ret60': trade.get('ret60', ''),
         'ret120': trade.get('ret120', ''),
@@ -388,6 +669,7 @@ def classify(row: pd.Series, market_state: dict[str, Any], data_quality_state: d
         'plan_level': safe_text(plan.get('plan_level')),
         'final_action': safe_text(row.get('final_action')),
         'warnings': warnings,
+        **serenity,
         'research_next_step': next_step(decision, failed, expectation_gap, valuation_level),
     }
 
@@ -429,10 +711,19 @@ def build(args: argparse.Namespace) -> tuple[list[dict[str, Any]], dict[str, Any
     data_quality_stock = read_csv(Path(args.data_quality_dir) / 'current_data_quality_stock.csv')
     data_quality_state = load_data_quality_state(Path(args.data_quality_dir))
     final_plan = read_json(Path(args.final_layer_dir) / 'current_final_trade_plan.json') or []
-    trade_scores, trade_source = load_trade_scores(Path(args.historical_backtest_dir), date_key)
+    current_prices = {
+        normalize_code(row.get('code')): safe_float(row.get('price'))
+        for _, row in fundamental.iterrows()
+    }
+    trade_scores, trade_source = load_trade_scores(
+        Path(args.historical_backtest_dir),
+        date_key,
+        current_prices=current_prices,
+    )
     market_state = load_market_state(Path(args.historical_backtest_dir), date_key)
     messages = [
         "trade_score_source=" + str(trade_source),
+        "trade_score_mode=daily_close_overlay",
         "market_reason=" + safe_text(market_state.get("market_reason")),
         "data_quality_status=" + safe_text(data_quality_state.get("status")) + "/" + str(data_quality_state.get("overall_score")),
     ]

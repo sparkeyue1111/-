@@ -21,6 +21,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument('--max-position-pct', type=float, default=0.20)
     parser.add_argument('--entry-threshold', type=float, default=76.0)
     parser.add_argument('--hold-threshold', type=float, default=68.0)
+    parser.add_argument('--mode', choices=['strict', 'shadow'], default='strict')
+    parser.add_argument('--min-total-score', type=float, default=65.0)
     parser.add_argument('--commission-rate', type=float, default=0.0003)
     parser.add_argument('--stamp-duty-rate', type=float, default=0.0005)
     parser.add_argument('--lot-size', type=int, default=100)
@@ -48,6 +50,12 @@ def safe_float(value: Any, default: float = math.nan) -> float:
         return default
 
 
+def safe_bool(value: Any) -> bool:
+    if isinstance(value, bool):
+        return value
+    return safe_text(value).lower() in {'1', 'true', 'yes', 'y', 'on'}
+
+
 def normalize_code(value: Any) -> str:
     text = safe_text(value)
     digits = ''.join(ch for ch in text if ch.isdigit())
@@ -63,9 +71,25 @@ def read_candidates(path: Path) -> pd.DataFrame:
     return df
 
 
+def state_is_pristine(state: dict[str, Any], expected_capital: float) -> bool:
+    return (
+        not state.get('positions')
+        and not state.get('trades')
+        and not state.get('pending_orders')
+        and abs(safe_float(state.get('cash'), expected_capital) - expected_capital) < 0.01
+        and abs(safe_float(state.get('equity'), expected_capital) - expected_capital) < 0.01
+    )
+
+
 def load_state(path: Path, initial_capital: float) -> dict[str, Any]:
     if path.exists():
-        return json.loads(path.read_text(encoding='utf-8'))
+        state = json.loads(path.read_text(encoding='utf-8'))
+        previous_initial = safe_float(state.get('initial_capital'), initial_capital)
+        if state_is_pristine(state, previous_initial) and abs(previous_initial - initial_capital) >= 0.01:
+            state['initial_capital'] = initial_capital
+            state['cash'] = initial_capital
+            state['equity'] = initial_capital
+        return state
     return {'cash': initial_capital, 'positions': [], 'trades': [], 'initial_capital': initial_capital}
 
 
@@ -81,6 +105,37 @@ def as_row_map(df: pd.DataFrame) -> dict[str, dict[str, Any]]:
     if df.empty:
         return {}
     return {normalize_code(row.get('code')): row.to_dict() for _, row in df.iterrows()}
+
+
+def candidate_is_eligible(row: dict[str, Any], args: argparse.Namespace) -> bool:
+    decision = safe_text(row.get('decision'))
+    trade_score = safe_float(row.get('trade_score'), 0.0)
+    if trade_score < args.entry_threshold or not safe_bool(row.get('market_ok')):
+        return False
+    if args.mode == 'strict':
+        return decision == 'BUY_READY'
+    return (
+        decision == 'TRADE_CANDIDATE'
+        and safe_text(row.get('research_status')) == 'RESEARCHED'
+        and safe_float(row.get('fundamental_first_score'), 0.0) >= args.min_total_score
+        and safe_float(row.get('evidence_quality_score'), 0.0) > 0
+        and safe_float(row.get('final_research_score'), 0.0) > 0
+        and '硬红旗' not in safe_text(row.get('failed_gates'))
+    )
+
+
+def affordability_reason(state: dict[str, Any], row: dict[str, Any], equity: float, args: argparse.Namespace) -> str:
+    price = safe_float(row.get('current_price'))
+    if math.isnan(price) or price <= 0:
+        return '缺少有效成交价格'
+    cash = safe_float(state.get('cash'), 0.0)
+    minimum_lot_cost = price * args.lot_size * (1.0 + args.commission_rate)
+    if minimum_lot_cost > cash:
+        return f'可用现金不足一手：至少需要{minimum_lot_cost:.2f}元'
+    budget = min(cash, equity * args.max_position_pct)
+    if minimum_lot_cost > budget:
+        return f'单票仓位上限不足一手：预算{budget:.2f}元，至少需要{minimum_lot_cost:.2f}元'
+    return ''
 
 
 def sell_position(state: dict[str, Any], position: dict[str, Any], price: float, reason: str, date_key: str, args: argparse.Namespace) -> dict[str, Any]:
@@ -133,6 +188,7 @@ def buy_candidate(state: dict[str, Any], row: dict[str, Any], equity: float, dat
         'risk_stop': safe_float(row.get('risk_stop'), price * 0.88),
         'last_trade_score': safe_float(row.get('trade_score'), 0.0),
         'fundamental_first_score': safe_float(row.get('fundamental_first_score'), 0.0),
+        'paper_mode': args.mode,
     }
     state.setdefault('positions', []).append(position)
     trade = {
@@ -145,7 +201,7 @@ def buy_candidate(state: dict[str, Any], row: dict[str, Any], equity: float, dat
         'amount': round(total, 2),
         'fee': round(fee, 2),
         'pnl': 0.0,
-        'reason': 'BUY_READY进入现实模拟盘',
+        'reason': 'BUY_READY进入严格模拟盘' if args.mode == 'strict' else '已深研交易候选进入影子模拟盘',
     }
     state.setdefault('trades', []).append(trade)
     return trade
@@ -158,7 +214,9 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], list[dict[str, Any]]]
     portfolio_dir = Path(args.portfolio_dir)
     state_path = portfolio_dir / 'paper_portfolio_state.json'
     state = load_state(state_path, args.initial_capital)
+    state['portfolio_mode'] = args.mode
     state.setdefault('pending_orders', [])
+    state['order_rejections'] = []
     trades_today: list[dict[str, Any]] = []
 
     new_positions = []
@@ -186,7 +244,7 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], list[dict[str, Any]]]
 
     held_codes = {normalize_code(position.get('code')) for position in state.get('positions', [])}
 
-    # 昨日或更早的 BUY_READY 信号，必须在下一次运行时仍满足条件才成交，避免收盘后信号当天成交。
+    # 信号必须在下一次运行时仍满足对应模式条件才成交，避免收盘后信号当天成交。
     remaining_pending: list[dict[str, Any]] = []
     for order in state.get('pending_orders', []):
         code = normalize_code(order.get('code'))
@@ -198,21 +256,27 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], list[dict[str, Any]]]
         if safe_text(order.get('signal_date')) == args.date:
             remaining_pending.append(order)
             continue
-        decision = safe_text(row.get('decision'))
-        trade_score = safe_float(row.get('trade_score'), safe_float(order.get('trade_score'), 0.0))
-        if decision == 'BUY_READY' and trade_score >= args.entry_threshold and len(state.get('positions', [])) < args.max_positions:
+        if candidate_is_eligible(row, args) and len(state.get('positions', [])) < args.max_positions:
+            blocked_reason = affordability_reason(state, row, equity_of(state), args)
+            if blocked_reason:
+                state['order_rejections'].append({
+                    'date': args.date,
+                    'code': code,
+                    'name': safe_text(row.get('name')),
+                    'reason': blocked_reason,
+                })
+                continue
             trade = buy_candidate(state, row, equity_of(state), args.date, args)
             if trade:
                 trades_today.append(trade)
                 held_codes.add(code)
                 continue
-        elif decision in {'WATCH', 'PENDING_RESEARCH', 'RESEARCH_QUEUE', 'FUNDAMENTAL_POOL', 'TRADE_CANDIDATE'} and trade_score >= args.hold_threshold:
-            remaining_pending.append(order)
     state['pending_orders'] = remaining_pending
     pending_codes = {normalize_code(order.get('code')) for order in state.get('pending_orders', [])}
 
     if not candidates.empty:
-        buys = candidates[candidates['decision'] == 'BUY_READY'].copy()
+        desired_decision = 'BUY_READY' if args.mode == 'strict' else 'TRADE_CANDIDATE'
+        buys = candidates[candidates['decision'] == desired_decision].copy()
         buys['sort_score'] = buys['fundamental_first_score'].map(lambda value: safe_float(value, 0.0)) * 0.7 + buys['trade_score'].map(lambda value: safe_float(value, 0.0)) * 0.3
         buys = buys.sort_values('sort_score', ascending=False)
         for _, row in buys.iterrows():
@@ -221,7 +285,8 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], list[dict[str, Any]]]
             code = normalize_code(row.get('code'))
             if code in held_codes or code in pending_codes:
                 continue
-            if safe_float(row.get('trade_score'), 0.0) < args.entry_threshold:
+            row_dict = row.to_dict()
+            if not candidate_is_eligible(row_dict, args):
                 continue
             state.setdefault('pending_orders', []).append({
                 'signal_date': args.date,
@@ -230,6 +295,7 @@ def run(args: argparse.Namespace) -> tuple[dict[str, Any], list[dict[str, Any]]]
                 'signal_price': safe_float(row.get('current_price')),
                 'trade_score': safe_float(row.get('trade_score'), 0.0),
                 'fundamental_first_score': safe_float(row.get('fundamental_first_score'), 0.0),
+                'paper_mode': args.mode,
             })
             pending_codes.add(code)
     state['last_update'] = args.date
@@ -255,13 +321,20 @@ def write_outputs(args: argparse.Namespace, state: dict[str, Any], trades_today:
     curve_row = pd.DataFrame([{'date': args.date, 'cash': round(safe_float(state.get('cash'), 0.0), 2), 'equity': round(safe_float(state.get('equity'), 0.0), 2), 'positions': len(state.get('positions', []))}])
     if curve_path.exists():
         curve = pd.read_csv(curve_path, dtype={'date': str})
+        initial_capital = safe_float(state.get('initial_capital'), args.initial_capital)
+        if state_is_pristine(state, initial_capital):
+            curve['cash'] = initial_capital
+            curve['equity'] = initial_capital
+            curve['positions'] = 0
         curve = curve[curve['date'] != args.date]
         curve = pd.concat([curve, curve_row], ignore_index=True).sort_values('date')
     else:
         curve = curve_row
     curve.to_csv(curve_path, index=False, encoding='utf-8-sig')
-    lines = ["# 现实模拟盘 - " + str(args.date), "", "- 初始资金：{:.2f}".format(safe_float(state.get("initial_capital"), args.initial_capital)), "- 当前权益：{:.2f}".format(safe_float(state.get("equity"), 0.0)), "- 现金：{:.2f}".format(safe_float(state.get("cash"), 0.0)), "- 持仓数：{}".format(len(state.get("positions", []))), "- 今日交易：{}".format(len(trades_today)), "- 待成交信号：{}".format(len(state.get("pending_orders", [])))]
-    (report_dir / f'paper_portfolio_{args.date}.md').write_text('\n'.join(lines) + '\n', encoding='utf-8')
+    mode_label = '严格模拟盘' if args.mode == 'strict' else '候选影子模拟盘'
+    lines = ["# " + mode_label + " - " + str(args.date), "", "- 初始资金：{:.2f}".format(safe_float(state.get("initial_capital"), args.initial_capital)), "- 当前权益：{:.2f}".format(safe_float(state.get("equity"), 0.0)), "- 现金：{:.2f}".format(safe_float(state.get("cash"), 0.0)), "- 持仓数：{}".format(len(state.get("positions", []))), "- 今日交易：{}".format(len(trades_today)), "- 待成交信号：{}".format(len(state.get("pending_orders", [])))]
+    report_name = f'paper_portfolio_{args.date}.md' if args.mode == 'strict' else f'paper_portfolio_shadow_{args.date}.md'
+    (report_dir / report_name).write_text('\n'.join(lines) + '\n', encoding='utf-8')
 
 
 def main() -> int:
