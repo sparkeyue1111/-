@@ -3,7 +3,7 @@ import type { TaskInfo } from '../types/analysis';
 import { useTaskStream } from './useTaskStream';
 
 type UseDashboardLifecycleOptions = {
-  loadInitialHistory: () => Promise<void>;
+  loadInitialHistory: (autoSelectFirst?: boolean) => Promise<void>;
   refreshHistory: (silent?: boolean) => Promise<void>;
   refreshActiveTasks: () => Promise<void>;
   loadStockBar: () => Promise<void>;
@@ -15,6 +15,7 @@ type UseDashboardLifecycleOptions = {
   syncTaskFailed: (task: TaskInfo) => void;
   removeTask: (taskId: string) => void;
   enabled?: boolean;
+  autoSelectFirst?: boolean;
 };
 
 export function useDashboardLifecycle({
@@ -30,6 +31,7 @@ export function useDashboardLifecycle({
   syncTaskFailed,
   removeTask,
   enabled = true,
+  autoSelectFirst = true,
 }: UseDashboardLifecycleOptions): void {
   const removalTimeoutsRef = useRef<number[]>([]);
 
@@ -38,11 +40,11 @@ export function useDashboardLifecycle({
       return;
     }
 
-    void loadInitialHistory();
+    void loadInitialHistory(autoSelectFirst);
     void loadStockBar();
     void loadMarketReviewHistory?.();
     void refreshActiveTasks();
-  }, [enabled, loadInitialHistory, loadMarketReviewHistory, loadStockBar, refreshActiveTasks]);
+  }, [autoSelectFirst, enabled, loadInitialHistory, loadMarketReviewHistory, loadStockBar, refreshActiveTasks]);
 
   useEffect(() => {
     if (!enabled) {

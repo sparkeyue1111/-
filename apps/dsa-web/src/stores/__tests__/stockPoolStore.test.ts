@@ -126,6 +126,42 @@ describe('stockPoolStore', () => {
     expect(state.isLoadingReport).toBe(false);
   });
 
+  it('can load history without auto-selecting and clears stale report state', async () => {
+    vi.mocked(historyApi.getList).mockResolvedValue({
+      total: 1,
+      page: 1,
+      limit: 20,
+      items: [historyItem],
+    });
+
+    await useStockPoolStore.getState().loadInitialHistory(false);
+
+    expect(useStockPoolStore.getState().historyItems).toEqual([historyItem]);
+    expect(useStockPoolStore.getState().selectedReport).toBeNull();
+    expect(historyApi.getDetail).not.toHaveBeenCalled();
+
+    useStockPoolStore.setState({
+      selectedReport: historyReport,
+      isLoadingReport: true,
+      isHistoryTrendOpen: true,
+      stockHistoryItems: [historyItem],
+      stockHistoryTotal: 1,
+      stockHistoryHasMore: true,
+      markdownDrawerOpen: true,
+    });
+
+    useStockPoolStore.getState().clearSelectedReport();
+
+    const state = useStockPoolStore.getState();
+    expect(state.selectedReport).toBeNull();
+    expect(state.isLoadingReport).toBe(false);
+    expect(state.isHistoryTrendOpen).toBe(false);
+    expect(state.stockHistoryItems).toEqual([]);
+    expect(state.stockHistoryTotal).toBe(0);
+    expect(state.stockHistoryHasMore).toBe(false);
+    expect(state.markdownDrawerOpen).toBe(false);
+  });
+
   it('opens same-stock history trend and loads more records', async () => {
     const olderItem = {
       ...historyItem,

@@ -86,12 +86,13 @@ export interface StockPoolState {
   closeHistoryTrend: () => void;
   setStockHistoryRange: (range: StockHistoryRange) => Promise<void>;
   loadMoreStockHistory: () => Promise<void>;
-  loadInitialHistory: () => Promise<void>;
+  loadInitialHistory: (autoSelectFirst?: boolean) => Promise<void>;
   refreshHistory: (silent?: boolean) => Promise<void>;
   loadMoreHistory: () => Promise<void>;
   loadMarketReviewHistory: () => Promise<void>;
   refreshMarketReviewHistory: (silent?: boolean) => Promise<void>;
   loadMoreMarketReviewHistory: () => Promise<void>;
+  clearSelectedReport: () => void;
   selectHistoryItem: (recordId: number) => Promise<void>;
   toggleHistorySelection: (recordId: number) => void;
   toggleSelectAllVisible: () => void;
@@ -546,8 +547,8 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
     await fetchStockHistory(get, set, { reset: false });
   },
 
-  loadInitialHistory: async () => {
-    await fetchHistory(get, set, { autoSelectFirst: true, reset: true });
+  loadInitialHistory: async (autoSelectFirst = true) => {
+    await fetchHistory(get, set, { autoSelectFirst, reset: true });
   },
 
   refreshHistory: async (silent = false) => {
@@ -576,6 +577,18 @@ export const useStockPoolStore = create<StockPoolState>((set, get) => ({
       return;
     }
     await fetchMarketReviewHistory(get, set, { reset: false });
+  },
+
+  clearSelectedReport: () => {
+    reportRequestSeq += 1;
+    stockHistoryRequestSeq += 1;
+    resetStockHistoryState(set);
+    set({
+      selectedReport: null,
+      isLoadingReport: false,
+      isHistoryTrendOpen: false,
+      markdownDrawerOpen: false,
+    });
   },
 
   selectHistoryItem: async (recordId) => {

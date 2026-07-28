@@ -183,6 +183,71 @@ describe('HomePage', () => {
     expect(historyApi.getMarkdown).not.toHaveBeenCalled();
   });
 
+  it('opens the latest report matching the stock in the analysis route', async () => {
+    const routeItem = {
+      ...historyItem,
+      id: 8,
+      queryId: 'q-8',
+      stockCode: '688797',
+      stockName: '臻宝科技',
+    };
+    const routeReport = {
+      ...historyReport,
+      meta: {
+        ...historyReport.meta,
+        id: 8,
+        queryId: 'q-8',
+        stockCode: '688797',
+        stockName: '臻宝科技',
+      },
+      summary: {
+        ...historyReport.summary,
+        analysisSummary: '臻宝科技对应的最新分析',
+      },
+    };
+
+    vi.mocked(historyApi.getList).mockImplementation((params = {}) => Promise.resolve(
+      params.stockCode === '688797'
+        ? { total: 1, page: 1, limit: 1, items: [routeItem] }
+        : { total: 1, page: 1, limit: 20, items: [historyItem] },
+    ));
+    vi.mocked(historyApi.getDetail).mockResolvedValue(routeReport);
+
+    render(
+      <MemoryRouter initialEntries={['/analysis?stock=688797&name=臻宝科技']}>
+        <HomePage />
+      </MemoryRouter>,
+    );
+
+    expect(await screen.findByText('臻宝科技对应的最新分析')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('输入股票代码或名称，如 600519、贵州茅台、AAPL'))
+      .toHaveValue('臻宝科技 688797');
+    expect(historyApi.getDetail).toHaveBeenCalledWith(8);
+  });
+
+  it('does not show another stock report when the routed stock has no history', async () => {
+    useStockPoolStore.setState({ selectedReport: historyReport });
+    vi.mocked(historyApi.getList).mockImplementation((params = {}) => Promise.resolve(
+      params.stockCode === '688797'
+        ? { total: 0, page: 1, limit: 1, items: [] }
+        : { total: 1, page: 1, limit: 20, items: [historyItem] },
+    ));
+
+    render(
+      <MemoryRouter initialEntries={['/analysis?stock=688797&name=臻宝科技']}>
+        <HomePage />
+      </MemoryRouter>,
+    );
+
+    await waitFor(() => {
+      expect(useStockPoolStore.getState().selectedReport).toBeNull();
+    });
+    expect(screen.queryByText('趋势维持强势')).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText('输入股票代码或名称，如 600519、贵州茅台、AAPL'))
+      .toHaveValue('臻宝科技 688797');
+    expect(historyApi.getDetail).not.toHaveBeenCalled();
+  });
+
   it('loads markdown only after opening the full report drawer', async () => {
     vi.mocked(historyApi.getList).mockResolvedValue({
       total: 1,

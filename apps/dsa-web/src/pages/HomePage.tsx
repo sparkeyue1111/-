@@ -97,6 +97,7 @@ const HomePage: React.FC = () => {
     refreshHistory,
     loadMarketReviewHistory,
     refreshMarketReviewHistory,
+    clearSelectedReport,
     selectHistoryItem,
     submitAnalysis,
     notify,
@@ -309,18 +310,63 @@ const HomePage: React.FC = () => {
     return requiredNeedsAction.slice(0, 3).join(uiLanguage === 'en' ? ', ' : '、');
   }, [setupStatus, uiLanguage]);
 
-  useEffect(() => {
+  const routeStock = useMemo(() => {
     const params = new URLSearchParams(location.search);
-    const stock = params.get('stock');
-    if (!stock) {
+    return params.get('stock')?.trim() || '';
+  }, [location.search]);
+
+  useEffect(() => {
+    if (!routeStock) {
       return;
     }
+
+    const params = new URLSearchParams(location.search);
     const name = params.get('name');
-    setQuery(name ? `${name} ${stock}` : stock);
-  }, [location.search, setQuery]);
+    const recordId = Number(params.get('recordId'));
+    setQuery(name ? [name, routeStock].join(' ') : routeStock);
+    clearSelectedReport();
+
+    let active = true;
+    const loadRouteReport = async () => {
+      if (Number.isInteger(recordId) && recordId > 0) {
+        if (active) {
+          await selectHistoryItem(recordId);
+        }
+        return;
+      }
+
+      try {
+        const response = await historyApi.getList({
+          stockCode: routeStock,
+          page: 1,
+          limit: 1,
+        });
+        if (!active) {
+          return;
+        }
+
+        const latest = response.items[0];
+        if (latest?.id) {
+          await selectHistoryItem(latest.id);
+        } else {
+          clearSelectedReport();
+        }
+      } catch {
+        if (active) {
+          clearSelectedReport();
+        }
+      }
+    };
+
+    void loadRouteReport();
+    return () => {
+      active = false;
+    };
+  }, [clearSelectedReport, location.search, routeStock, selectHistoryItem, setQuery]);
 
   useDashboardLifecycle({
     loadInitialHistory,
+    autoSelectFirst: !routeStock,
     refreshHistory,
     loadMarketReviewHistory,
     refreshMarketReviewHistory,

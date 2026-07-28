@@ -365,7 +365,7 @@ const FundamentalFirstPage: React.FC = () => {
   const tabs: CandidateTab[] = ["all", "BUY_READY", "TRADE_CANDIDATE", "WATCH", "RESEARCH_QUEUE", "FUNDAMENTAL_POOL", "REJECT"];
 
   return (
-    <div className="flex min-h-[calc(100vh-5rem)] flex-col pb-6 lg:h-[calc(100vh-2rem)] lg:min-h-0 lg:overflow-hidden lg:pb-2">
+    <div className="flex min-h-[calc(100vh-5rem)] flex-col pb-6 lg:min-h-[calc(100vh-2rem)] lg:pb-2">
       <header className="flex flex-shrink-0 flex-col gap-3 px-1 pb-4 sm:px-0">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
@@ -441,8 +441,8 @@ const FundamentalFirstPage: React.FC = () => {
         />
       </div>
 
-      <div className="mt-4 grid gap-4 lg:min-h-0 lg:flex-1 xl:grid-cols-[22rem_minmax(0,1fr)]">
-        <Card padding="sm" className="flex flex-col lg:min-h-0">
+      <div className="mt-4 grid gap-4 xl:grid-cols-[22rem_minmax(0,1fr)] xl:items-start">
+        <Card padding="sm" className="flex flex-col xl:sticky xl:top-4 xl:max-h-[calc(100vh-2rem)]">
           <div className="mb-3 flex items-center justify-between gap-3">
             <div>
               <div className="label-uppercase">Pool</div>
@@ -450,7 +450,7 @@ const FundamentalFirstPage: React.FC = () => {
             </div>
             <div className="text-xs text-muted-text">{filteredCandidates.length}/{candidates.length}</div>
           </div>
-          <div className="max-h-[45vh] space-y-2 overflow-y-auto overscroll-contain pr-1 lg:max-h-none lg:min-h-0 lg:flex-1">
+          <div className="max-h-[45vh] space-y-2 overflow-y-auto overscroll-contain pr-1 lg:max-h-[60vh] xl:max-h-[calc(100vh-8rem)]">
             {loading ? <div className="p-6 text-center text-sm text-muted-text">加载中...</div> : null}
             {!loading && visibleCandidates.length ? visibleCandidates.map((row) => (
               <CandidateListItem
@@ -477,7 +477,7 @@ const FundamentalFirstPage: React.FC = () => {
           </div>
         </Card>
 
-        <section ref={detailRef} className="scroll-mt-20 pr-1 lg:min-h-0 lg:overflow-y-auto">
+        <section ref={detailRef} className="min-w-0 scroll-mt-20 pr-1">
           {selected ? (
             <div className="space-y-4 pb-6">
               {selectedDetailLoading ? (
